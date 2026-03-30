@@ -1,0 +1,202 @@
+[
+  {
+    "image_path": "data/abo-images-small/images/small/64/647b3e32.jpg",
+    "item_id": "B07D6SW7K6",
+    "relevant_ids": [
+      "B07D6SW7K6",
+      "B07FWC991T",
+      "B07GCXGGM1"
+    ],
+    "category": "GROCERY"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/e0/e0cb5691.jpg",
+    "item_id": "B01N5Y0XSO",
+    "relevant_ids": [
+      "B01N5Y0XSO",
+      "B0881W82BD",
+      "B01N16ECR1"
+    ],
+    "category": "SHOES"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/2c/2cfd0581.jpg",
+    "item_id": "B0856G51ZG",
+    "relevant_ids": [
+      "B0856G51ZG",
+      "B085FJ1W72",
+      "B07B4MRV2H"
+    ],
+    "category": "CHAIR"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/60/601fafbd.jpg",
+    "item_id": "B082Q97X1G",
+    "relevant_ids": [
+      "B082Q97X1G",
+      "B07BWK7JWZ",
+      "B0831Y1G61"
+    ],
+    "category": "SOFA"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/ce/ce755c85.jpg",
+    "item_id": "B079J12C4W",
+    "relevant_ids": [
+      "B079J12C4W",
+      "B074H737JZ",
+      "B07YY9ZD7M"
+    ],
+    "category": "HEALTH_PERSONAL_CARE"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/3d/3d4ce775.jpg",
+    "item_id": "B078JKG6GF",
+    "relevant_ids": [
+      "B078JKG6GF",
+      "B084KD18YS",
+      "B000RGYCV0"
+    ],
+    "category": "HOME"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/3f/3f694445.jpg",
+    "item_id": "B071LQHVQ8",
+    "relevant_ids": [
+      "B071LQHVQ8",
+      "B07TS82ZHP",
+      "B07QGFZWRM"
+    ],
+    "category": "RUG"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/4b/4bda3a08.jpg",
+    "item_id": "B08568X258",
+    "relevant_ids": [
+      "B08568X258",
+      "B07B7B3CVQ",
+      "B07TZS99DS"
+    ],
+    "category": "STOOL_SEATING"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/2c/2c5d9297.jpg",
+    "item_id": "B07HFX3M1F",
+    "relevant_ids": [
+      "B07HFX3M1F",
+      "B07HFWK961",
+      "B07HFXLYKX"
+    ],
+    "category": "RING"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/80/80944bc2.jpg",
+    "item_id": "B071FJCJJK",
+    "relevant_ids": [
+      "B071FJCJJK",
+      "B07HSKV2QT",
+      "B084T9V3PP"
+    ],
+    "category": "TABLE"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/75/7580d15d.jpg",
+    "item_id": "B07HSK7YD9",
+    "relevant_ids": [
+      "B07HSK7YD9",
+      "B07QCMB9WW",
+      "B07MJL48NG"
+    ],
+    "category": "HOME_FURNITURE_AND_DECOR"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/27/27d0b975.jpg",
+    "item_id": "B07SYQX4Z5",
+    "relevant_ids": [
+      "B07SYQX4Z5",
+      "B01N9SYC75",
+      "B014WC38NC"
+    ],
+    "category": "FINERING"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/ec/ec1b3191.jpg",
+    "item_id": "B07VP5QGFM",
+    "relevant_ids": [
+      "B07VP5QGFM",
+      "B07TJ18JFT",
+      "B06X9WK5T6"
+    ],
+    "category": "BOOT"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/a8/a8e07348.jpg",
+    "item_id": "B0825DN9JP",
+    "relevant_ids": [
+      "B0825DN9JP",
+      "B082JH65ZF",
+      "B07DBJJ5QB"
+    ],
+    "category": "LAMP"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/90/9048f059.jpg",
+    "item_id": "B083VB1SHB",
+    "relevant_ids": [
+      "B083VB1SHB",
+      "B079PNYTL4",
+      "B074VBL8LC"
+    ],
+    "category": "BEAUTY"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/b3/b3d6541a.jpg",
+    "item_id": "B073P5Y9HB",
+    "relevant_ids": [
+      "B073P5Y9HB",
+      "B073P23TXY",
+      "B073P19TFJ"
+    ],
+    "category": "WALL_ART"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/e1/e18fddf9.jpg",
+    "item_id": "B000W99MOO",
+    "relevant_ids": [
+      "B000W99MOO",
+      "B0019ZMIH8",
+      "B0812CGP9F"
+    ],
+    "category": "OUTDOOR_LIVING"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/a5/a5586145.jpg",
+    "item_id": "B07QC76TKV",
+    "relevant_ids": [
+      "B07QC76TKV",
+      "B07HK85RQF",
+      "B07QC9Y53F"
+    ],
+    "category": "LIGHT_FIXTURE"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/69/691f198e.jpg",
+    "item_id": "B07Q1YLCDC",
+    "relevant_ids": [
+      "B07Q1YLCDC",
+      "B06X9TC34P",
+      "B07JNRS5DJ"
+    ],
+    "category": "HOME_BED_AND_BATH"
+  },
+  {
+    "image_path": "data/abo-images-small/images/small/fc/fc55ceb2.jpg",
+    "item_id": "B073GGGF7X",
+    "relevant_ids": [
+      "B073GGGF7X",
+      "B075WYJZ66",
+      "B07B4MFK71"
+    ],
+    "category": "OTTOMAN"
+  }
+]

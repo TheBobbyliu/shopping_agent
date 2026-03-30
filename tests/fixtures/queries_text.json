@@ -1,0 +1,221 @@
+[
+  {
+    "query": "something cozy for the living room",
+    "relevant_ids": [
+      "B0825DN9JP",
+      "B082JH65ZF"
+    ],
+    "category_hint": "LAMP"
+  },
+  {
+    "query": "sleek modern furniture for a study",
+    "relevant_ids": [
+      "B07HSKV2QT",
+      "B07NJQ9RRG"
+    ],
+    "category_hint": "FURNITURE"
+  },
+  {
+    "query": "durable kitchen essentials",
+    "relevant_ids": [
+      "B08BP9Y1HF",
+      "B07676NXCH"
+    ],
+    "category_hint": "KITCHEN"
+  },
+  {
+    "query": "classic jewelry for women",
+    "relevant_ids": [
+      "B0043RTRB4",
+      "B07SYQX4Z5"
+    ],
+    "category_hint": "JEWELRY"
+  },
+  {
+    "query": "handmade musical instruments",
+    "relevant_ids": [
+      "B087MKMPX1"
+    ],
+    "category_hint": "INSTRUMENTS"
+  },
+  {
+    "query": "aesthetic wall decor",
+    "relevant_ids": [
+      "B073P1JNWZ",
+      "B07Q15JRJC"
+    ],
+    "category_hint": "DECOR"
+  },
+  {
+    "query": "outdoor gear for adventures",
+    "relevant_ids": [
+      "B00HZJ8IVM",
+      "B079X87CY1"
+    ],
+    "category_hint": "OUTDOOR"
+  },
+  {
+    "query": "elegant lighting fixtures",
+    "relevant_ids": [
+      "B0825DN9JP",
+      "B082JH65ZF"
+    ],
+    "category_hint": "LIGHTING"
+  },
+  {
+    "query": "black leather boots women",
+    "relevant_ids": [
+      "B07TJ18JFT"
+    ],
+    "category_hint": "BOOT"
+  },
+  {
+    "query": "natural wood table",
+    "relevant_ids": [
+      "B07HSKV2QT",
+      "B087MKMPX1"
+    ],
+    "category_hint": "TABLE"
+  },
+  {
+    "query": "gray camera bag",
+    "relevant_ids": [
+      "B084CFV42P"
+    ],
+    "category_hint": "CAMERA_BAGS_AND_CASES"
+  },
+  {
+    "query": "yellow gold ring",
+    "relevant_ids": [
+      "B07SYQX4Z5"
+    ],
+    "category_hint": "FINERING"
+  },
+  {
+    "query": "platinum plated jewelry",
+    "relevant_ids": [
+      "B01N9SYC75"
+    ],
+    "category_hint": "JEWELRY"
+  },
+  {
+    "query": "white wireless mouse",
+    "relevant_ids": [
+      "B08HCSKXKR"
+    ],
+    "category_hint": "INPUT_MOUSE"
+  },
+  {
+    "query": "comfortable office chair",
+    "relevant_ids": [
+      "B01DUVQC9S",
+      "B07HSKV2QT"
+    ],
+    "category_hint": "OFFICE_FURNITURE"
+  },
+  {
+    "query": "kitchen storage solutions",
+    "relevant_ids": [
+      "B07HSKV2QT",
+      "B07B4YC7LD"
+    ],
+    "category_hint": "KITCHEN"
+  },
+  {
+    "query": "ergonomic home office setup",
+    "relevant_ids": [
+      "B01MCY00G6",
+      "B01K4X44FY"
+    ],
+    "category_hint": "OFFICE"
+  },
+  {
+    "query": "multicolor sticky notes",
+    "relevant_ids": [
+      "B079X87CY1"
+    ],
+    "category_hint": "OFFICE_SUPPLIES"
+  },
+  {
+    "query": "wireless remote for Nikon",
+    "relevant_ids": [
+      "B07HX5ZW15"
+    ],
+    "category_hint": "REMOTE_CONTROL"
+  },
+  {
+    "query": "silver PC mouse",
+    "relevant_ids": [
+      "B08HCSKXKR"
+    ],
+    "category_hint": "INPUT_MOUSE"
+  },
+  {
+    "query": "wooden storage solutions",
+    "relevant_ids": [
+      "B07HSKV2QT",
+      "B07B4YC7LD"
+    ],
+    "category_hint": "STORAGE"
+  },
+  {
+    "query": "portable electronics",
+    "relevant_ids": [
+      "B00R4YCKIK",
+      "B07YSQNVZ4"
+    ],
+    "category_hint": "PORTABLE_ELECTRONIC_DEVICE_MOUNT"
+  },
+  {
+    "query": "black head strap for camera",
+    "relevant_ids": [
+      "B00R4YCKIK"
+    ],
+    "category_hint": "PORTABLE_ELECTRONIC_DEVICE_MOUNT"
+  },
+  {
+    "query": "metal camera accessories",
+    "relevant_ids": [
+      "B082234MRG",
+      "B084CFV42P"
+    ],
+    "category_hint": "CAMERA_BAGS_AND_CASES"
+  },
+  {
+    "query": "high speed steel drill bits",
+    "relevant_ids": [
+      "B087ZH18GL"
+    ],
+    "category_hint": "DRILL_BITS"
+  },
+  {
+    "query": "wooden furniture for home",
+    "relevant_ids": [
+      "B07HSKV2QT",
+      "B07B4YC7LD"
+    ],
+    "category_hint": "FURNITURE"
+  },
+  {
+    "query": "white adjustable bed frame",
+    "relevant_ids": [
+      "B087X62M91"
+    ],
+    "category_hint": "BED_FRAME"
+  },
+  {
+    "query": "stylish table lamps",
+    "relevant_ids": [
+      "B0825DN9JP",
+      "B082JH65ZF"
+    ],
+    "category_hint": "LAMP"
+  },
+  {
+    "query": "modern wall-mounted clock",
+    "relevant_ids": [
+      "B07Q15JRJC"
+    ],
+    "category_hint": "CLOCK"
+  }
+]
