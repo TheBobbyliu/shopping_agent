@@ -1,16 +1,23 @@
 """
 Full preprocessing pipeline: extract → embed → index.
 
+Supports resume: products already present in the Elasticsearch index are
+skipped automatically. Use --recreate to drop and rebuild from scratch.
+
 Usage:
+    # First run (or full re-run):
+    python pipeline.py --index-name products --recreate
+
+    # Resume after interruption:
+    python pipeline.py --index-name products
+
+    # Test subset:
     python pipeline.py --limit 500 --stratify --index-name products_test --recreate
-    python pipeline.py --index-name products --recreate   # full catalog
 """
 from __future__ import annotations
 
 import os
 import sys
-import json
-import tempfile
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -34,18 +41,17 @@ def main():
     parser.add_argument("--index-name",   default="products")
     parser.add_argument("--es-url",       default=os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
     parser.add_argument("--recreate",     action="store_true")
-    parser.add_argument("--batch-size",   type=int, default=32)
-    parser.add_argument("--out",          type=Path, default=None,
-                        help="Optional: save embedded JSONL to this path")
+    parser.add_argument("--batch-size",   type=int, default=16,
+                        help="Products per batch for embedding (text+image together)")
     args = parser.parse_args()
 
-    # --- Step 1: Extract ---
     sys.path.insert(0, str(Path(__file__).parent))
     from extract import extract_products
     from embed import EmbeddingClient, _chunks
-    from index import index_products
-    from catalog import Product, EmbeddedProduct
+    from index import ensure_index, get_indexed_ids, index_products
+    from catalog import EmbeddedProduct
 
+    # --- Step 1: Extract ---
     print("[pipeline] Step 1: extracting products…", file=sys.stderr)
     products = list(extract_products(
         listings_dir=args.listings_dir,
@@ -56,59 +62,56 @@ def main():
     ))
     print(f"[pipeline] Extracted {len(products)} products", file=sys.stderr)
 
-    # --- Step 2: Embed ---
-    print("[pipeline] Step 2: embedding…", file=sys.stderr)
+    # --- Step 2: Embed (with resume via ES) ---
     client = EmbeddingClient.from_env()
+    dim = int(os.environ.get("EMBEDDING_DIM", len(client.embed_texts(["warmup"])[0])))
 
-    descriptions = [p.description for p in products]
-    image_paths  = [p.image_path  for p in products]
+    ensure_index(args.es_url, args.index_name, dim, recreate=args.recreate)
 
-    text_vecs: list[list[float]] = []
-    for i, batch in enumerate(_chunks(descriptions, args.batch_size)):
-        vecs = client.embed_texts(batch)
-        text_vecs.extend(vecs)
-        done = min((i + 1) * args.batch_size, len(products))
-        print(f"[pipeline]   text {done}/{len(products)}", file=sys.stderr)
+    if args.recreate:
+        to_embed = products
+    else:
+        all_ids = [p.item_id for p in products]
+        done_ids = get_indexed_ids(args.es_url, args.index_name, all_ids)
+        to_embed = [p for p in products if p.item_id not in done_ids]
+        if done_ids:
+            print(f"[pipeline] Resuming: {len(done_ids)} already indexed, "
+                  f"{len(to_embed)} remaining", file=sys.stderr)
 
-    image_vecs: list[list[float]] = []
-    for i, batch in enumerate(_chunks(image_paths, 15)):
-        vecs = client.embed_images(batch)
-        image_vecs.extend(vecs)
-        done = min((i + 1) * 15, len(products))
-        print(f"[pipeline]   image {done}/{len(products)}", file=sys.stderr)
+    if not to_embed:
+        print("[pipeline] All products already indexed — nothing to do", file=sys.stderr)
+        return
 
-    embedded = []
-    for p, img_vec, txt_vec in zip(products, image_vecs, text_vecs):
-        ep = EmbeddedProduct(
-            **{k: getattr(p, k) for k in p.__dataclass_fields__},
-            image_vector=img_vec,
-            description_vector=txt_vec,
-        )
-        embedded.append(ep)
+    print(f"[pipeline] Step 2: embedding and indexing {len(to_embed)} products…",
+          file=sys.stderr)
 
-    # --- Optional: save JSONL ---
-    save_path = args.out
-    if save_path is None and args.limit:
-        save_path = Path(__file__).parent.parent / "tests" / "fixtures" / f"embedded_{args.limit}.jsonl"
+    total_done = 0
+    total = len(to_embed)
+    total_errors = 0
 
-    if save_path:
-        save_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(save_path, "w") as f:
-            for ep in embedded:
-                f.write(json.dumps(ep.to_dict()) + "\n")
-        print(f"[pipeline] Saved embedded products to {save_path}", file=sys.stderr)
+    for batch in _chunks(to_embed, args.batch_size):
+        texts  = [p.description for p in batch]
+        images = [str(p.image_path) for p in batch]
 
-    # --- Step 3: Index ---
-    dim = int(os.environ.get("EMBEDDING_DIM", len(text_vecs[0]) if text_vecs else 1024))
-    print(f"[pipeline] Step 3: indexing into '{args.index_name}'…", file=sys.stderr)
-    stats = index_products(
-        [ep.to_dict() for ep in embedded],
-        es_url=args.es_url,
-        index_name=args.index_name,
-        recreate=args.recreate,
-        dim=dim,
-    )
-    print(f"[pipeline] Done — {stats.indexed} indexed, {stats.errors} errors", file=sys.stderr)
+        txt_vecs = client.embed_texts(texts)
+        img_vecs = client.embed_images(images)
+
+        embedded = [
+            EmbeddedProduct(
+                **{k: getattr(p, k) for k in p.__dataclass_fields__},
+                description_vector=txt_vec,
+                image_vector=img_vec,
+            ).to_dict()
+            for p, txt_vec, img_vec in zip(batch, txt_vecs, img_vecs)
+        ]
+
+        stats = index_products(embedded, es_url=args.es_url, index_name=args.index_name,
+                               recreate=False, dim=dim)
+        total_done += len(batch)
+        total_errors += stats.errors
+        print(f"[pipeline]   embedded+indexed {total_done}/{total}", file=sys.stderr)
+
+    print(f"[pipeline] Done — {total_done} indexed, {total_errors} errors", file=sys.stderr)
 
 
 if __name__ == "__main__":

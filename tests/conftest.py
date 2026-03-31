@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).parent.parent / "preprocessing"))
 load_dotenv(Path(__file__).parent.parent / ".env")
 
+# Tests always run against the test index, regardless of what .env sets for production.
+os.environ["ES_INDEX"] = "products_test"
+
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 CATALOG_FILE = FIXTURES_DIR / "catalog_500.jsonl"
 IMAGES_DIR = Path(__file__).parent.parent / "data/abo-images-small/images/small"

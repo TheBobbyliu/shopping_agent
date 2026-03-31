@@ -69,6 +69,28 @@ def _index_mapping(dim: int) -> dict:
     }
 
 
+def get_indexed_ids(es_url: str, index_name: str, item_ids: list[str]) -> set[str]:
+    """Return the subset of item_ids already present in the index."""
+    from elasticsearch import Elasticsearch
+    es = Elasticsearch(es_url)
+    if not es.indices.exists(index=index_name):
+        return set()
+    result = es.mget(index=index_name, body={"ids": item_ids}, _source=False)
+    return {doc["_id"] for doc in result["docs"] if doc.get("found")}
+
+
+def ensure_index(es_url: str, index_name: str, dim: int, recreate: bool = False) -> None:
+    """Create the index (optionally deleting it first)."""
+    from elasticsearch import Elasticsearch
+    es = Elasticsearch(es_url)
+    if recreate and es.indices.exists(index=index_name):
+        es.indices.delete(index=index_name)
+        print(f"[index] Deleted existing index '{index_name}'", file=sys.stderr)
+    if not es.indices.exists(index=index_name):
+        es.indices.create(index=index_name, body=_index_mapping(dim))
+        print(f"[index] Created index '{index_name}' (dim={dim})", file=sys.stderr)
+
+
 def index_products(
     products: Iterable[dict],
     es_url: str = "http://localhost:9200",

@@ -26,46 +26,43 @@ ABO Dataset
             ├─ data cleaning & normalization
             ├─ image embedding extraction  (bge-visualized-m3)
             └─ text embedding extraction   (bge-visualized-m3)
-                  ├─→ Elasticsearch  (image_indexes + description_indexes)
-                  └─→ Elasticsearch  (product metadata as documents)
+                  └─→ Elasticsearch  (description_vector + image_vector per product)
 ```
 
 ### Data Pipeline (Online)
 
 ```
 Web UI (chat + image upload)
-  └─→ Agent  [LangGraph]
-        ├─ intent analysis
-        ├─ tool calling
-        └─ answer questions
-              │
-              ├─→ Product Search ──────────────────────→ Search Engine
-              │     - image: optional                       ├─ hybrid search
-              │     - query: str                            │    1. image vector (HNSW)
-              │     - filters: **kwargs                     │    2. description vector (HNSW)
-              │     - return: product candidates            │    3. keyword match (BM25)
-              │                                             │    4. hybrid scoring (RRF)
-              ├─→ Get Product Info                          └─→ bge-reranker-v2-m3
-              │     - ids: item_id[]                              └─→ top-N candidates
-              │     - return: full product info
-              │
-              │         [image path]
-              ├─→ Image Understanding ── GPT-4o ──→ text description
-              └─→ Feature Engine
-                    ├─ image feature extraction
-                    └─ text feature extraction
-                          return: embedding vector
+  └─→ API  (saves upload → /uploads/{uuid}.jpg)
+        └─→ Agent  [LangGraph ReAct]
+              └─ message: "user query\n\n[Image URL: http://.../uploads/{uuid}.jpg]"
+                    │
+                    ├─→ product_search ─────────────────────→ Search Engine
+                    │     - query: str                           ├─ 1. download image from URL
+                    │     - image_url: str (optional)            ├─ 2. GPT-4o → text description
+                    │     - top_k: int                           ├─ hybrid search
+                    │     - return: product candidates           │    a. description vector (HNSW)
+                    │                                            │    b. image vector (HNSW)
+                    ├─→ get_product_info                         │    c. keyword match (BM25)
+                    │     - item_id: str                         │    d. hybrid scoring (RRF)
+                    │     - return: full product details         └─→ bge-reranker-v2-m3
+                    │                                                  └─→ top-N candidates
+                    └─→ understand_image
+                          - image_url: str
+                          - return: text description (via GPT-4o)
+                            [used only when user asks "what is this?",
+                             not needed for search — product_search handles it internally]
 ```
 
-**Context** is managed by LangGraph's checkpointer, persisted in PostgreSQL.
+**Context** is managed by LangGraph's PostgresSaver checkpointer. If PostgreSQL is unavailable, the agent falls back to stateless mode (client supplies history).
 
 ### Search Flow by Query Type
 
-| Query type | Feature Engine | Search channels | Reranker |
-|---|---|---|---|
-| Text recommendation | BGE-Vis-M3 on query text | description HNSW + BM25 | bge-reranker-v2-m3 |
-| Image search | GPT-4o describes image → BGE-Vis-M3 on description + BGE-Vis-M3 on image | image HNSW + description HNSW + BM25 | bge-reranker-v2-m3 |
-| Product Q&A | — | Get Product Info (exact lookup) | — |
+| Query type | Embedding channels | Reranker |
+|---|---|---|
+| Text recommendation | description HNSW + BM25 | bge-reranker-v2-m3 |
+| Image search | description HNSW + image HNSW + BM25 | bge-reranker-v2-m3 |
+| Product Q&A | exact lookup by item_id | — |
 
 Hybrid score fusion uses **Reciprocal Rank Fusion (RRF)** across all active channels before reranking.
 
@@ -77,29 +74,22 @@ Hybrid score fusion uses **Reciprocal Rank Fusion (RRF)** across all active chan
 |---|---|---|
 | Frontend | Next.js | Fast dev, easy deployment, good streaming support |
 | Agent API | FastAPI | Async, auto OpenAPI docs, Python ML ecosystem |
-| Orchestration | LangGraph | State graph, checkpointing, cycles, native streaming |
+| Orchestration | LangGraph (ReAct) | Prebuilt ReAct agent, checkpointing, native streaming |
 | Logging / Tracing | LangSmith | Full trace visualization per request, token usage per step |
-| LLM + Image Understanding | GPT-5.4 | Multimodal, strong instruction following, tool use |
+| LLM | GPT-5.4 (primary) / Claude (fallback) | Strong instruction following, tool use |
+| Image Understanding | GPT-4o | Converts product images to search descriptions (inside search engine) |
 | Embeddings (image + text) | bge-visualized-m3 | Shared embedding space for text and images — enables cross-modal search |
 | Reranker | bge-reranker-v2-m3 | Cross-encoder, same BGE family, no extra infra |
 | Search + Vector DB | Elasticsearch | HNSW vector search + BM25 in one system, mature ops, scalable |
-| Metadata + Context DB | PostgreSQL | ACID, LangGraph checkpointer, structured product queries |
+| Context DB | PostgreSQL | LangGraph PostgresSaver checkpointer |
 | Product Catalog | ABO Dataset | Real-world Amazon product data with images and rich metadata |
 
 ### Embedding Model Config
 
-The Feature Engine supports two modes, controlled by `FEATURE_ENGINE_MODE` in config:
-
-```
-unified   — bge-visualized-m3 for both text and images
-            → single shared vector space, cross-modal search works
-            → one HNSW index covers both query types
-
-separate  — independent models for each modality
-            → image model: configurable (e.g. siglip2-so400m)
-            → text model:  configurable (e.g. bge-m3)
-            → two separate HNSW indexes, no cross-modal comparison
-```
+The pipeline uses the on-premise **Visualized_BGE** model (bge-visualized-m3 architecture):
+- BGE-M3 text encoder + EVA-CLIP visual encoder in a shared 1024-dim space
+- Weights downloaded automatically from HuggingFace on first run
+- Controlled by `EMBEDDING_MODEL` (default: `BAAI/bge-m3`) and `EMBEDDING_WEIGHT` (default: `Visualized_m3.pth`)
 
 ---
 
@@ -111,50 +101,37 @@ shopping-demo/
 ├── docker-compose.yml
 ├── .env.example
 │
-├── frontend/                        # Next.js
+├── frontend-next/                   # Next.js
 │   ├── app/
-│   │   └── page.tsx                 # Chat UI entry point
+│   │   ├── layout.tsx
+│   │   └── page.tsx                 # Entry point
 │   ├── components/
-│   │   ├── Chat/                    # Message thread, input, image upload
-│   │   └── ProductCard/             # Product result card
+│   │   └── ChatWindow.tsx           # Chat UI (messages + image upload)
 │   └── lib/
 │       └── api.ts                   # API client
 │
-├── backend/                         # FastAPI + LangGraph
-│   ├── main.py                      # FastAPI app entry point
-│   ├── config.py                    # Settings (env vars, feature engine mode)
-│   │
-│   ├── agent/
-│   │   ├── graph.py                 # LangGraph state graph definition
-│   │   ├── tools.py                 # product_search, get_product_info tools
-│   │   └── prompts.py               # System prompt
-│   │
-│   ├── search/
-│   │   ├── engine.py                # Hybrid search (HNSW + BM25 + RRF)
-│   │   └── reranker.py              # bge-reranker-v2-m3 wrapper
-│   │
-│   ├── feature/
-│   │   ├── embeddings.py            # bge-visualized-m3, unified/separate modes
-│   │   └── image_understanding.py   # GPT-4o image → text description
-│   │
-│   ├── db/
-│   │   ├── elasticsearch.py         # ES client, index management
-│   │   └── postgres.py              # LangGraph checkpointer setup
-│   │
-│   └── api/
-│       └── routes/
-│           ├── chat.py              # POST /api/chat
-│           └── products.py          # GET /api/products, /api/products/{id}
+├── api/
+│   └── main.py                      # FastAPI app — all routes
 │
-├── data/
-│   ├── ABO_DATASET_GUIDE.md
-│   ├── abo-listings/                # Product metadata (JSONL.gz)
-│   └── abo-images-small/            # Product images (JPEG, max 256px)
+├── agent/
+│   ├── agent.py                     # create_agent() — LangGraph ReAct agent
+│   ├── tools.py                     # product_search, get_product_info, understand_image
+│   ├── search.py                    # hybrid_search(), get_product(), describe_image()
+│   └── context.py                   # PostgresSaver checkpointer setup
 │
-└── preprocessing/
-    ├── extract.py                   # Parse ABO listings + resolve image paths
-    ├── embed.py                     # Extract embeddings, write to disk
-    └── index.py                     # Bulk index into Elasticsearch
+├── preprocessing/
+│   ├── pipeline.py                  # End-to-end: extract → embed → index
+│   ├── extract.py                   # Parse ABO listings + resolve image paths
+│   ├── embed.py                     # EmbeddingClient (vikingdb / ark / local backends)
+│   ├── index.py                     # Bulk index into Elasticsearch
+│   └── catalog.py                   # Product dataclasses
+│
+├── tests/
+│   └── ...
+│
+└── data/
+    ├── abo-listings/                # Product metadata (JSONL.gz)
+    └── abo-images-small/            # Product images (JPEG, max 256px)
 ```
 
 ---
@@ -164,7 +141,8 @@ shopping-demo/
 - Python 3.11+
 - Node.js 20+
 - Docker (for Elasticsearch + PostgreSQL)
-- OpenAI API key (GPT-5.4)
+- `OPENAI_API_KEY` (for the agent LLM and image understanding via GPT-4o)
+- `ANTHROPIC_API_KEY` (optional, as Claude fallback for the agent)
 
 ---
 
@@ -176,13 +154,12 @@ shopping-demo/
 git clone <repo>
 cd shopping-demo
 
-# Backend
-cd backend
+# Python dependencies
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
 # Frontend
-cd ../frontend
+cd frontend-next
 npm install
 ```
 
@@ -197,36 +174,108 @@ docker-compose up -d   # starts Elasticsearch + PostgreSQL
 ```bash
 cp .env.example .env
 # Fill in:
-#   OPENAI_API_KEY
-#   LANGSMITH_API_KEY  (optional, for tracing)
-#   ELASTICSEARCH_URL
-#   POSTGRES_URL
-#   FEATURE_ENGINE_MODE  (unified | separate)
+#   OPENAI_API_KEY      (required — agent LLM + image understanding)
+#   ANTHROPIC_API_KEY   (optional — Claude fallback for agent)
+#   LANGSMITH_API_KEY   (optional, for tracing)
+#   ELASTICSEARCH_URL   (default: http://localhost:9200)
+#   DATABASE_URL        (default: postgresql://shopping:shopping@localhost:5432/shopping)
+#   API_BASE_URL        (default: http://localhost:8000 — used to build upload image URLs)
+#   ES_INDEX            (default: products)
 ```
 
 ### 4. Prepare data
 
+The pipeline runs three steps in one command: **extract → embed → index**.
+Resume is automatic — if the run is interrupted, re-running picks up from the last indexed batch.
+
+#### Full catalog (~26K products)
+
 ```bash
-cd preprocessing
-
-# Step 1: extract and clean product records from ABO
-python extract.py --listings ../data/abo-listings --images ../data/abo-images-small --out catalog.jsonl
-
-# Step 2: compute embeddings
-python embed.py --input catalog.jsonl --out embeddings.jsonl --mode unified
-
-# Step 3: index into Elasticsearch
-python index.py --input embeddings.jsonl
+python preprocessing/pipeline.py \
+  --index-name products \
+  --recreate
 ```
+
+#### Resume after interruption
+
+```bash
+# Same command, without --recreate (checks which IDs are already in ES and skips them)
+python preprocessing/pipeline.py \
+  --index-name products
+```
+
+#### Re-index only (re-embed from scratch)
+
+```bash
+python preprocessing/pipeline.py \
+  --index-name products \
+  --recreate
+```
+
+If you only need to rebuild the Elasticsearch index from an already-embedded JSONL file:
+
+```bash
+python preprocessing/index.py \
+  --input data/embedded_full.jsonl \
+  --index products \
+  --recreate
+```
+
+#### Quick test subset (~20 min)
+
+```bash
+python preprocessing/pipeline.py \
+  --index-name products_test \
+  --recreate \
+  --limit 500 \
+  --stratify
+```
+
+`--stratify` samples proportionally across categories so no single category exceeds 20% of the result.
+
+#### All pipeline options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--index-name` | `products` | Elasticsearch index to create/populate |
+| `--recreate` | off | Drop and recreate the index before indexing |
+| `--batch-size` | `16` | Products per embedding batch (text + image together) |
+| `--limit` | None | Cap number of products (omit for full catalog) |
+| `--stratify` | off | When `--limit` set, sample proportionally across categories |
+| `--listings-dir` | `data/abo-listings/listings/metadata` | ABO listing files directory |
+| `--images-csv` | `data/abo-images-small/images/metadata/images.csv` | Image metadata CSV |
+| `--images-dir` | `data/abo-images-small/images/small` | Image files directory |
+
+#### Relevant `.env` variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ES_INDEX` | `products` | Index the API serves from |
+| `ES_TEST_INDEX` | `products_test` | Index used by pytest |
+| `ELASTICSEARCH_URL` | `http://localhost:9200` | Elasticsearch endpoint |
+| `EMBEDDING_MODEL` | `BAAI/bge-m3` | BGE text model for local backend |
+| `EMBEDDING_WEIGHT` | `Visualized_m3.pth` | Visual weight file (downloaded from HF if missing) |
+| `EMBEDDING_DIM` | `1024` | Vector dimension (must match model) |
+
+#### How embeddings are stored
+
+Each product document in Elasticsearch has two dense vector fields in the same 1024-dim space:
+
+| Field | Source | Used for |
+|-------|--------|----------|
+| `description_vector` | `embed_text(description)` | Text query HNSW channel |
+| `image_vector` | `embed_image(product_image)` | Image query HNSW channel |
+
+Both fields use bge-visualized-m3, a unified multimodal model whose text and image embeddings share the same latent space. This enables cross-modal search: a text query can retrieve products by visual similarity and vice versa.
 
 ### 5. Run
 
 ```bash
-# Backend
-cd backend && uvicorn main:app --reload --port 8000
+# API server (from repo root)
+cd api && uvicorn main:app --reload --port 8000
 
 # Frontend
-cd frontend && npm run dev
+cd frontend-next && npm run dev
 ```
 
 Open [http://localhost:3000](http://localhost:3000).
@@ -235,7 +284,7 @@ Open [http://localhost:3000](http://localhost:3000).
 
 ## API Reference
 
-### `POST /api/chat`
+### `POST /chat`
 
 Send a message (text and/or image) to the agent.
 
@@ -244,68 +293,45 @@ Send a message (text and/or image) to the agent.
 ```json
 {
   "message": "Recommend a running t-shirt under $30",
-  "image": "<base64-encoded image, optional>",
-  "conversation_id": "uuid (optional, omit to start new session)"
+  "image_b64": "<base64-encoded image, optional>",
+  "session_id": "uuid (optional, omit to start new session)",
+  "history": []
 }
 ```
+
+- `session_id`: used as LangGraph `thread_id` for persistent context. If omitted, a new UUID is generated.
+- `history`: client-supplied message history used only in stateless mode (when PostgreSQL is unavailable).
+- `image_b64`: base64-encoded JPEG or PNG. The API saves the image to `uploads/` and passes a URL to the agent. The search engine downloads the image, calls GPT-4o to understand it, extracts an image embedding, and runs full hybrid search — all internally.
 
 **Response**
 
 ```json
 {
-  "conversation_id": "550e8400-e29b-41d4-a716-446655440000",
   "reply": "Here are some lightweight running shirts from the catalog:",
-  "products": [
+  "session_id": "550e8400-e29b-41d4-a716-446655440000",
+  "tool_calls": [
     {
-      "item_id": "B06X9STHNG",
-      "name": "Men's Dri-Fit Running Tee",
-      "description": "Moisture-wicking fabric, reflective details...",
-      "image_url": "http://localhost:8000/images/8c/8ccb5859.jpg",
-      "web_url": "https://...",
-      "metadata": {
-        "brand": "Nike",
-        "category": "SHIRT",
-        "color": "Black",
-        "price": 27.99
-      },
-      "relevance_score": 0.94
+      "tool": "product_search",
+      "args": { "query": "running t-shirt under $30", "top_k": 5 }
     }
   ]
 }
 ```
 
-**Notes**
-- `conversation_id` is returned on the first turn; pass it back on subsequent turns to maintain context.
-- `products` is an empty array for general conversation replies.
-- Image should be base64-encoded; JPEG and PNG are supported.
+- `session_id` is returned on the first turn; pass it back on subsequent turns to maintain context.
+- `tool_calls` logs which tools the agent called (image data is stripped from args).
 
 ---
 
-### `GET /api/products`
+### `POST /chat/upload`
 
-List products from the catalog.
+Multipart form endpoint — accepts file upload directly (alternative to base64 in `/chat`).
 
-**Query parameters**
-
-| Param | Type | Description |
-|---|---|---|
-| `q` | string | Keyword filter |
-| `category` | string | Product type (e.g. `SHOES`, `SHIRT`) |
-| `limit` | int | Max results (default: 20) |
-| `offset` | int | Pagination offset (default: 0) |
-
-**Response**
-
-```json
-{
-  "total": 1482,
-  "products": [ { "item_id": "...", "name": "...", ... } ]
-}
-```
+**Form fields**: `message` (str), `session_id` (str, optional), `history` (JSON string, optional), `image` (file, optional).
 
 ---
 
-### `GET /api/products/{item_id}`
+### `GET /products/{item_id}`
 
 Get full details for a single product.
 
@@ -316,27 +342,31 @@ Get full details for a single product.
   "item_id": "B06X9STHNG",
   "name": "Men's Dri-Fit Running Tee",
   "description": "...",
-  "bullet_points": ["Moisture-wicking", "Reflective details", "..."],
+  "bullet_points": ["Moisture-wicking", "Reflective details"],
+  "image_path": "data/abo-images-small/images/small/8c/8ccb5859.jpg",
   "image_url": "...",
   "web_url": "...",
-  "metadata": {
-    "brand": "Nike",
-    "category": "SHIRT",
-    "color": "Black",
-    "material": "Polyester",
-    "dimensions": { "height": "28in", "width": "20in" }
-  }
+  "brand": "Nike",
+  "category": "SHIRT",
+  "color": "Black",
+  "material": "Polyester"
 }
 ```
 
 ---
 
-### `GET /api/health`
+### `GET /image/{item_id}`
+
+Serve the product image file directly.
+
+---
+
+### `GET /health`
 
 Liveness check.
 
 ```json
-{ "status": "ok", "elasticsearch": "ok", "postgres": "ok" }
+{ "status": "ok" }
 ```
 
 ---

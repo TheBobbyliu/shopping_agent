@@ -15,14 +15,19 @@ from langchain_core.tools import tool
 
 
 @tool
-def product_search(query: str, image_b64: Optional[str] = None, top_k: int = 5) -> str:
+def product_search(query: str, image_url: Optional[str] = None, top_k: int = 5) -> str:
     """
-    Search the product catalog using natural language, an optional product image, or both.
+    Search the product catalog using natural language, an optional product image URL, or both.
+
+    When image_url is provided the search engine automatically:
+      - Calls GPT-4o to understand the image and produce a text description.
+      - Extracts an image embedding for visual similarity search.
+      - Runs all three channels (description HNSW + image HNSW + BM25) and fuses with RRF.
 
     Args:
         query:     Natural language description of what the user is looking for.
-        image_b64: Base64-encoded JPEG/PNG of a product image (optional).
-                   When provided, the search uses visual similarity in addition to text.
+                   May be empty when image_url is the primary input.
+        image_url: URL of a product image (optional). Triggers visual similarity search.
         top_k:     Maximum number of results to return (1-10, default 5).
 
     Returns:
@@ -32,7 +37,7 @@ def product_search(query: str, image_b64: Optional[str] = None, top_k: int = 5) 
     from search import hybrid_search
 
     top_k = max(1, min(top_k, 10))
-    results = hybrid_search(query_text=query, image_b64=image_b64, top_k=top_k)
+    results = hybrid_search(query_text=query, image_url=image_url, top_k=top_k)
     return json.dumps(results, ensure_ascii=False)
 
 
@@ -59,22 +64,28 @@ def get_product_info(item_id: str) -> str:
 
 
 @tool
-def understand_image(image_b64: str) -> str:
+def understand_image(image_url: str) -> str:
     """
-    Analyze a product image and return a text description suitable for search.
+    Analyze a product image and return a text description.
 
-    Use this when the user uploads an image and you need to understand
-    what the product is before searching for it or similar items.
+    Use this when the user wants to know what a product is without searching,
+    or to confirm what an uploaded image shows before recommending alternatives.
+    For image-based product search, prefer product_search(image_url=...) directly.
 
     Args:
-        image_b64: Base64-encoded JPEG/PNG image.
+        image_url: URL of the product image.
 
     Returns:
         A concise product description (type, color, material, style, features).
     """
-    from search import describe_image
+    from search import _fetch_image, describe_image
 
-    return describe_image(image_b64)
+    img_b64, tmp_path = _fetch_image(image_url)
+    try:
+        return describe_image(img_b64)
+    finally:
+        from pathlib import Path
+        Path(tmp_path).unlink(missing_ok=True)
 
 
 TOOLS = [product_search, get_product_info, understand_image]

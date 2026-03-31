@@ -11,43 +11,112 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "preprocessing"))
 
-RRF_K = 60
-ES_INDEX = os.environ.get("ES_TEST_INDEX", "products_test")
+RRF_K    = 60
+# ES_INDEX: production default is "products". Tests override via conftest.py.
+ES_INDEX = os.environ.get("ES_INDEX", os.environ.get("ES_TEST_INDEX", "products_test"))
 ES_URL   = os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200")
+
+# Singletons — loaded once on first use
+_reranker         = None
+_embedding_client = None
+_es_client        = None
 
 
 def _get_es():
-    from elasticsearch import Elasticsearch
-    return Elasticsearch(ES_URL)
+    global _es_client
+    if _es_client is None:
+        from elasticsearch import Elasticsearch
+        _es_client = Elasticsearch(ES_URL)
+    return _es_client
 
 
 def _get_embedding_client():
-    from embed import EmbeddingClient
-    return EmbeddingClient.from_env()
+    global _embedding_client
+    if _embedding_client is None:
+        from embed import EmbeddingClient
+        _embedding_client = EmbeddingClient.from_env()
+    return _embedding_client
+
+
+def _get_reranker():
+    global _reranker
+    if _reranker is None:
+        from FlagEmbedding import FlagReranker
+        _reranker = FlagReranker("BAAI/bge-reranker-v2-m3", use_fp16=False)
+    return _reranker
 
 
 def _rrf(rank: int) -> float:
     return 1.0 / (RRF_K + rank)
 
 
+def _fetch_image(image_url: str) -> tuple[str, str]:
+    """
+    Download an image from a URL and return (base64_str, temp_file_path).
+    Caller is responsible for deleting the temp file.
+    """
+    import base64 as _b64
+    import tempfile
+    import urllib.request
+
+    with urllib.request.urlopen(image_url) as resp:
+        raw = resp.read()
+
+    tmp_file = tempfile.NamedTemporaryFile(suffix=".jpg", delete=False)
+    tmp_file.write(raw)
+    tmp_file.close()
+
+    b64 = _b64.b64encode(raw).decode()
+    return b64, tmp_file.name
+
+
 def hybrid_search(
     query_text: str,
-    image_b64: Optional[str] = None,
+    image_url: Optional[str] = None,
     top_k: int = 8,
     category: Optional[str] = None,
+    rerank: bool = True,
+    rerank_fetch_multiplier: int = 4,
 ) -> list[dict]:
     """
-    Run hybrid search: description HNSW + BM25 (+ image HNSW if image given).
-    Returns top_k product dicts with score.
+    Hybrid search: description HNSW + BM25 (+ image HNSW if image given) → RRF → reranker.
+
+    When image_url is provided the search engine:
+      1. Downloads the image and calls GPT-4o to produce a text description.
+      2. Uses that description as query_text if none was supplied.
+      3. Extracts an image embedding for the image HNSW channel.
+
+    Args:
+        query_text:              Natural language query (may be empty when image_url is given).
+        image_url:               URL of a product image to include image HNSW channel.
+        top_k:                   Final number of results to return.
+        category:                Optional Elasticsearch category filter.
+        rerank:                  Whether to apply bge-reranker-v2-m3 after RRF fusion.
+        rerank_fetch_multiplier: Fetch top_k * this many candidates before reranking.
     """
-    es = _get_es()
+    es     = _get_es()
     client = _get_embedding_client()
 
-    fetch_k = max(50, top_k * 8)
+    # How many candidates to retrieve from each channel before reranking
+    fetch_k = max(50, top_k * rerank_fetch_multiplier) if rerank else top_k
     knn_filter = [{"term": {"category": category}}] if category else []
 
-    # Channel 1: description vector
-    txt_vec = client.embed_text(query_text)
+    # --- Image understanding + embedding (if image provided) ---
+    img_vec = None
+    if image_url:
+        img_b64, tmp_path = _fetch_image(image_url)
+        try:
+            # Understand image: get a text description for the text search channels
+            img_description = describe_image(img_b64)
+            if not query_text or not query_text.strip():
+                query_text = img_description
+            # Extract image embedding for the image HNSW channel
+            img_vec = client.embed_image(tmp_path)
+        finally:
+            Path(tmp_path).unlink(missing_ok=True)
+
+    # --- Channel 1: description vector (HNSW) ---
+    txt_vec  = client.embed_text(query_text)
     knn_body: dict = {
         "field": "description_vector",
         "query_vector": txt_vec,
@@ -56,32 +125,20 @@ def hybrid_search(
     }
     if knn_filter:
         knn_body["filter"] = {"bool": {"must": knn_filter}}
-    knn_resp = es.search(index=ES_INDEX, knn=knn_body, size=fetch_k,
-                         _source=True)
-    knn_hits = knn_resp["hits"]["hits"]
+    knn_hits = es.search(index=ES_INDEX, knn=knn_body, size=fetch_k,
+                         _source=True)["hits"]["hits"]
 
-    # Channel 2: BM25
-    bm25_query: dict = {"match": {"description": {"query": query_text}}}
+    # --- Channel 2: BM25 (lexical) ---
+    bm25_q: dict = {"match": {"description": {"query": query_text}}}
     if knn_filter:
-        bm25_query = {"bool": {"must": [bm25_query, *[{"term": f} for f in knn_filter]]}}
-    bm25_resp = es.search(index=ES_INDEX, query=bm25_query, size=fetch_k,
-                           _source=True)
-    bm25_hits = bm25_resp["hits"]["hits"]
+        bm25_q = {"bool": {"must": [bm25_q, *knn_filter]}}
+    bm25_hits = es.search(index=ES_INDEX, query=bm25_q, size=fetch_k,
+                           _source=True)["hits"]["hits"]
 
     channels = [knn_hits, bm25_hits]
 
-    # Channel 3: image vector (optional)
-    if image_b64:
-        import base64, tempfile
-        data = base64.b64decode(image_b64)
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-            f.write(data)
-            tmp = f.name
-        try:
-            img_vec = client.embed_image(tmp)
-        finally:
-            Path(tmp).unlink(missing_ok=True)
-
+    # --- Channel 3: image vector (optional) ---
+    if img_vec is not None:
         img_body: dict = {
             "field": "image_vector",
             "query_vector": img_vec,
@@ -90,24 +147,47 @@ def hybrid_search(
         }
         if knn_filter:
             img_body["filter"] = {"bool": {"must": knn_filter}}
-        img_resp = es.search(index=ES_INDEX, knn=img_body, size=fetch_k,
-                             _source=True)
-        channels.append(img_resp["hits"]["hits"])
+        channels.append(
+            es.search(index=ES_INDEX, knn=img_body, size=fetch_k,
+                      _source=True)["hits"]["hits"]
+        )
 
-    # RRF fusion
-    scores: dict[str, float] = {}
-    sources: dict[str, dict] = {}
+    # --- RRF fusion ---
+    rrf_scores: dict[str, float] = {}
+    sources:    dict[str, dict]  = {}
     for channel in channels:
         for rank, hit in enumerate(channel, start=1):
             iid = hit["_source"]["item_id"]
-            scores[iid] = scores.get(iid, 0.0) + _rrf(rank)
+            rrf_scores[iid] = rrf_scores.get(iid, 0.0) + _rrf(rank)
             sources[iid] = hit["_source"]
 
-    fused = sorted(scores.items(), key=lambda x: -x[1])[:top_k]
+    # Take the top fetch_k candidates for reranking (or top_k if no reranking)
+    candidate_limit = fetch_k if rerank else top_k
+    candidates = sorted(rrf_scores.items(), key=lambda x: -x[1])[:candidate_limit]
+
+    # --- Reranker ---
+    if rerank and candidates:
+        reranker = _get_reranker()
+        cand_ids  = [iid for iid, _ in candidates]
+        passages  = [
+            (sources[iid].get("name", "") + " " + sources[iid].get("description", ""))[:512]
+            for iid in cand_ids
+        ]
+        pairs  = [[query_text, p] for p in passages]
+        scores = reranker.compute_score(pairs)
+        if isinstance(scores, float):
+            scores = [scores]
+
+        ranked = sorted(zip(cand_ids, scores), key=lambda x: -x[1])[:top_k]
+    else:
+        ranked = [(iid, rrf_scores[iid]) for iid, _ in candidates[:top_k]]
+
+    # --- Build result list ---
+    # When reranking, `ranked` contains (iid, rerank_score); look up the original RRF score separately.
     results = []
-    for iid, score in fused:
+    for iid, score in ranked:
         src = sources[iid]
-        results.append({
+        entry = {
             "item_id":     iid,
             "name":        src.get("name", ""),
             "category":    src.get("category", ""),
@@ -118,8 +198,11 @@ def hybrid_search(
             "image_path":  src.get("image_path", ""),
             "image_url":   src.get("image_url", ""),
             "web_url":     src.get("web_url", ""),
-            "score":       round(score, 6),
-        })
+            "score":       round(rrf_scores[iid], 6),
+        }
+        if rerank:
+            entry["rerank_score"] = round(float(score), 6)
+        results.append(entry)
     return results
 
 
@@ -128,8 +211,7 @@ def get_product(item_id: str) -> Optional[dict]:
     es = _get_es()
     try:
         resp = es.get(index=ES_INDEX, id=item_id)
-        src = resp["_source"]
-        # Remove vector fields from response
+        src  = resp["_source"]
         src.pop("description_vector", None)
         src.pop("image_vector", None)
         return src
@@ -138,13 +220,8 @@ def get_product(item_id: str) -> Optional[dict]:
 
 
 def describe_image(image_b64: str) -> str:
-    """
-    Call GPT-4o to produce a shopping-oriented description of a product image.
-    image_b64: base64-encoded image bytes (JPEG or PNG).
-    """
-    import os
+    """Call GPT-4o to produce a shopping-oriented description of a product image."""
     from openai import OpenAI
-
     api_key = os.environ.get("OPENAI_API_KEY", "")
     if not api_key:
         return "Image understanding unavailable (OPENAI_API_KEY not set)."
@@ -155,20 +232,16 @@ def describe_image(image_b64: str) -> str:
         messages=[{
             "role": "user",
             "content": [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
-                },
-                {
-                    "type": "text",
-                    "text": (
-                        "You are a product search assistant. "
-                        "Describe this product image concisely for search purposes. "
-                        "Include: product type, color, material (if visible), "
-                        "style, and any notable features. "
-                        "Be specific. Do not include prices or brand guesses."
-                    ),
-                },
+                {"type": "image_url",
+                 "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"}},
+                {"type": "text",
+                 "text": (
+                     "You are a product search assistant. "
+                     "Describe this product image concisely for search purposes. "
+                     "Include: product type, color, material (if visible), "
+                     "style, and any notable features. "
+                     "Be specific. Do not include prices or brand guesses."
+                 )},
             ],
         }],
         max_tokens=200,

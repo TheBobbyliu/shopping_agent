@@ -1,13 +1,9 @@
 """
 Embedding client for the shopping agent pipeline.
 
-Supports two backends:
-  - vikingdb: Volcano Engine VikingDB SDK (requires VOLCANO_AK + VOLCANO_SK)
-  - ark:      Volcano Engine Ark API, OpenAI-compatible (requires ARK_API_KEY +
-              ARK_EMBEDDING_ENDPOINT for text; ARK_VISION_ENDPOINT for image)
-
-Backend is selected by EMBEDDING_BACKEND env var (default: vikingdb).
-Model is selected by EMBEDDING_MODEL env var (default: bge-visualized-m3).
+Uses the local on-premise backend (Visualized_BGE / bge-visualized-m3).
+Backend is selected by EMBEDDING_BACKEND env var (default: local).
+Model is selected by EMBEDDING_MODEL env var (default: BAAI/bge-m3).
 
 Usage:
     client = EmbeddingClient.from_env()
@@ -15,7 +11,7 @@ Usage:
     # single text
     vec = client.embed_text("running shoes for men")
 
-    # single image (path or base64 bytes)
+    # single image
     vec = client.embed_image(Path("images/shoe.jpg"))
 
     # batch (more efficient)
@@ -28,7 +24,6 @@ import base64
 import math
 import os
 import sys
-import time
 from pathlib import Path
 from typing import Union
 
@@ -47,148 +42,13 @@ def _cosine_similarity(a: list[float], b: list[float]) -> float:
     return float(np.dot(va, vb) / denom)
 
 
-def _load_image_b64(path: Path, max_bytes: int = 900_000) -> str:
-    """
-    Read an image file and return base64-encoded string.
-    Resizes if larger than max_bytes using Pillow if available,
-    otherwise truncates (VikingDB recommends < 1MB).
-    """
-    data = path.read_bytes()
-    if len(data) > max_bytes:
-        try:
-            from PIL import Image
-            import io
-            img = Image.open(path)
-            buf = io.BytesIO()
-            # scale down until under limit
-            scale = math.sqrt(max_bytes / len(data)) * 0.9
-            new_w = max(1, int(img.width * scale))
-            new_h = max(1, int(img.height * scale))
-            img = img.resize((new_w, new_h), Image.LANCZOS)
-            img.save(buf, format="JPEG", quality=85)
-            data = buf.getvalue()
-        except ImportError:
-            pass  # PIL not available; send as-is and let API decide
-    return base64.b64encode(data).decode("utf-8")
-
-
 def _chunks(lst: list, n: int):
     for i in range(0, len(lst), n):
         yield lst[i : i + n]
 
 
 # ---------------------------------------------------------------------------
-# VikingDB backend
-# ---------------------------------------------------------------------------
-
-class _VikingDBBackend:
-    """
-    Uses the volcengine VikingDB SDK.
-    Credentials: VOLCANO_AK, VOLCANO_SK
-    Host:   VOLCANO_HOST   (default: api-vikingdb.volces.com)
-    Region: VOLCANO_REGION (default: cn-beijing)
-    """
-
-    def __init__(self, model: str = "bge-visualized-m3"):
-        from volcengine.viking_db import VikingDBService, EmbModel, RawData
-
-        self._EmbModel = EmbModel
-        self._RawData = RawData
-        self._model = model
-
-        ak = os.environ.get("VOLCANO_AK", "")
-        sk = os.environ.get("VOLCANO_SK", "")
-        host = os.environ.get("VOLCANO_HOST", "api-vikingdb.volces.com")
-        region = os.environ.get("VOLCANO_REGION", "cn-beijing")
-
-        if not ak or not sk:
-            raise EnvironmentError(
-                "VikingDB backend requires VOLCANO_AK and VOLCANO_SK env vars. "
-                "Set EMBEDDING_BACKEND=ark to use the Ark API instead."
-            )
-
-        self._svc = VikingDBService(host=host, region=region, ak=ak, sk=sk)
-
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        results = []
-        for batch in _chunks(texts, 100):
-            raw = [self._RawData("text", text=t) for t in batch]
-            res = self._svc.embedding_v2(self._EmbModel(self._model), raw)
-            results.extend(res)
-        return results
-
-    def embed_images(self, paths: list[Path]) -> list[list[float]]:
-        results = []
-        for batch in _chunks(paths, 15):   # 15 images/sec rate limit
-            raw = [self._RawData("image", image=_load_image_b64(p)) for p in batch]
-            res = self._svc.embedding_v2(self._EmbModel(self._model), raw)
-            results.extend(res)
-            if len(paths) > 15:
-                time.sleep(1.1)            # respect rate limit
-        return results
-
-
-# ---------------------------------------------------------------------------
-# Ark API backend (OpenAI-compatible)
-# ---------------------------------------------------------------------------
-
-class _ArkBackend:
-    """
-    Uses the Ark API (OpenAI-compatible).
-    For text:  ARK_API_KEY + ARK_EMBEDDING_ENDPOINT (endpoint ID, e.g. ep-...)
-    For image: ARK_API_KEY + ARK_VISION_ENDPOINT    (must support doubao-embedding-vision)
-
-    If ARK_VISION_ENDPOINT is not set, image embedding falls back to describing
-    the image with GPT and embedding the description.
-    """
-
-    def __init__(self, text_model: str = "bge-m3", image_model: str = "doubao-embedding-vision"):
-        from openai import OpenAI
-
-        api_key = os.environ.get("ARK_API_KEY", "")
-        if not api_key:
-            raise EnvironmentError("Ark backend requires ARK_API_KEY env var.")
-
-        self._client = OpenAI(
-            api_key=api_key,
-            base_url="https://ark.cn-beijing.volces.com/api/v3",
-        )
-        self._text_endpoint = os.environ.get("ARK_EMBEDDING_ENDPOINT", text_model)
-        self._image_endpoint = os.environ.get("ARK_VISION_ENDPOINT", "")
-        self._image_model = image_model
-
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
-        results = []
-        for batch in _chunks(texts, 100):
-            resp = self._client.embeddings.create(
-                model=self._text_endpoint,
-                input=batch,
-            )
-            # sort by index to preserve order
-            ordered = sorted(resp.data, key=lambda x: x.index)
-            results.extend([item.embedding for item in ordered])
-        return results
-
-    def embed_images(self, paths: list[Path]) -> list[list[float]]:
-        if not self._image_endpoint:
-            raise EnvironmentError(
-                "ARK_VISION_ENDPOINT is not set. "
-                "Set it to a deployed doubao-embedding-vision endpoint, "
-                "or use EMBEDDING_BACKEND=vikingdb."
-            )
-        results = []
-        for path in paths:
-            b64 = _load_image_b64(path)
-            resp = self._client.embeddings.create(
-                model=self._image_endpoint,
-                input=[{"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}}],
-            )
-            results.append(resp.data[0].embedding)
-        return results
-
-
-# ---------------------------------------------------------------------------
-# Local (on-premise) backend — SigLIP2 via transformers
+# Local (on-premise) backend — Visualized_BGE via FlagEmbedding
 # ---------------------------------------------------------------------------
 
 class _LocalBackend:
@@ -265,17 +125,11 @@ class _LocalBackend:
 
 class EmbeddingClient:
     """
-    Unified embedding client. Backend selected by EMBEDDING_BACKEND env var.
+    Embedding client using the local on-premise backend (Visualized_BGE).
 
     env vars:
-        EMBEDDING_BACKEND   vikingdb | ark  (default: vikingdb)
-        EMBEDDING_MODEL     model name      (default: bge-visualized-m3)
-
-    VikingDB credentials:
-        VOLCANO_AK, VOLCANO_SK, VOLCANO_HOST, VOLCANO_REGION
-
-    Ark credentials:
-        ARK_API_KEY, ARK_EMBEDDING_ENDPOINT, ARK_VISION_ENDPOINT
+        EMBEDDING_MODEL   bge text model id  (default: BAAI/bge-m3)
+        EMBEDDING_WEIGHT  visual weight path (default: Visualized_m3.pth)
     """
 
     def __init__(self, backend):
@@ -283,17 +137,8 @@ class EmbeddingClient:
 
     @classmethod
     def from_env(cls) -> "EmbeddingClient":
-        backend_name = os.environ.get("EMBEDDING_BACKEND", "vikingdb").lower()
-        model = os.environ.get("EMBEDDING_MODEL", "bge-visualized-m3")
-
-        if backend_name == "vikingdb":
-            return cls(_VikingDBBackend(model=model))
-        elif backend_name == "ark":
-            return cls(_ArkBackend())
-        elif backend_name == "local":
-            return cls(_LocalBackend(model_id=model))
-        else:
-            raise ValueError(f"Unknown EMBEDDING_BACKEND: {backend_name!r}. Use 'vikingdb', 'ark', or 'local'.")
+        model = os.environ.get("EMBEDDING_MODEL", "BAAI/bge-m3")
+        return cls(_LocalBackend(model_id=model))
 
     # --- single item convenience wrappers ---
 

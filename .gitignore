@@ -5,3 +5,4 @@ data/abo-*
 */.claude
 */__pycache__
 .DS_store
+frontend-next/node_modules

@@ -28,18 +28,23 @@ SYSTEM_PROMPT = """You are a helpful AI shopping assistant — think of yourself
 You help users with three things:
 1. **Product recommendations** — understand what they need and suggest relevant items
 2. **Text search** — find products matching a description, category, color, material, etc.
-3. **Image search** — when a user uploads an image, analyze it and find visually similar products
+3. **Image search** — when a user uploads an image, find visually similar products
 
 ## How to use your tools
 
 **product_search**: Your primary tool. Use it for any shopping request.
 - For text queries: pass the user's request as `query`
-- For image searches: pass both `query` (your description of the image) and `image_b64`
+- For image searches: extract the image URL from the message (it appears as `[Image URL: <url>]`)
+  and pass it as `image_url`. The search engine automatically understands the image,
+  extracts visual features, and runs a full hybrid search — you do not need to describe
+  the image yourself first.
 - You can call it multiple times to refine results
 
-**understand_image**: Call this first when the user uploads an image to get a clear description, then use that description in product_search with the image.
+**understand_image**: Use only when the user wants to know what a product looks like
+without searching — e.g. "what is this?" Pass the image URL from the message.
 
-**get_product_info**: Use when the user asks for more details about a specific product, or when you need complete product information before making a recommendation.
+**get_product_info**: Use when the user asks for more details about a specific product,
+or when you need complete product information before making a recommendation.
 
 ## Response style
 - Be conversational and helpful, not robotic
@@ -54,19 +59,27 @@ The catalog contains ~500 products across categories including shoes, furniture,
 """
 
 
-def create_agent(model: str | None = None):
+def create_agent(model: str | None = None, checkpointer=None):
     """Create and return the shopping agent.
 
     Backend is selected automatically:
-      - ANTHROPIC_API_KEY → claude-haiku-4-5-20251001 (preferred)
-      - OPENAI_API_KEY    → gpt-4o-mini (fallback)
+      - OPENAI_API_KEY    → gpt-5.4 (primary)
+      - ANTHROPIC_API_KEY → claude-haiku-4-5-20251001 (fallback)
     Override with AGENT_MODEL env var.
     """
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     openai_key    = os.environ.get("OPENAI_API_KEY", "")
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
     agent_model   = model or os.environ.get("AGENT_MODEL", "")
 
-    if anthropic_key and not agent_model.startswith("gpt"):
+    if openai_key and not agent_model.startswith("claude"):
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(
+            model=agent_model or "gpt-5.4",
+            api_key=openai_key,
+            temperature=0.3,
+            max_tokens=1024,
+        )
+    elif anthropic_key:
         from langchain_anthropic import ChatAnthropic
         llm = ChatAnthropic(
             model=agent_model or "claude-haiku-4-5-20251001",
@@ -74,22 +87,12 @@ def create_agent(model: str | None = None):
             temperature=0.3,
             max_tokens=1024,
         )
-    elif openai_key:
-        from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(
-            model=agent_model or "gpt-4o-mini",
-            api_key=openai_key,
-            temperature=0.3,
-            max_tokens=1024,
-        )
     else:
         raise EnvironmentError(
-            "No LLM credentials found. Set ANTHROPIC_API_KEY or OPENAI_API_KEY."
+            "No LLM credentials found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY."
         )
 
-    agent = create_react_agent(
-        model=llm,
-        tools=TOOLS,
-        prompt=SystemMessage(content=SYSTEM_PROMPT),
-    )
-    return agent
+    kwargs = dict(model=llm, tools=TOOLS, prompt=SystemMessage(content=SYSTEM_PROMPT))
+    if checkpointer is not None:
+        kwargs["checkpointer"] = checkpointer
+    return create_react_agent(**kwargs)
