@@ -1,0 +1,65 @@
+{
+  "session_id": "e00c0a52-6943-4a59-b246-da9723c6af8b",
+  "timestamp": "2026-03-31T16:23:00.677359+00:00",
+  "user_message": "Red leather sofa",
+  "total_elapsed_s": 8.6211,
+  "stages": [
+    {
+      "stage": "agent_invoke",
+      "start_offset_s": 0.0003,
+      "input": {
+        "session_id": "e00c0a52-6943-4a59-b246-da9723c6af8b"
+      },
+      "output": {},
+      "elapsed_s": 8.6202,
+      "status": "error",
+      "error": "NotFoundError(404, 'index_not_found_exception', 'no such index [products]', products, index_or_alias)"
+    },
+    {
+      "stage": "llm_1",
+      "start_offset_s": 0.0425,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 1.7028,
+      "status": "ok"
+    },
+    {
+      "stage": "tool_product_search_1",
+      "start_offset_s": 1.7527,
+      "input": {
+        "args_preview": "{'query': 'red leather sofa'}"
+      },
+      "output": {},
+      "elapsed_s": 6.8151,
+      "status": "error",
+      "error": "NotFoundError(404, 'index_not_found_exception', 'no such index [products]', products, index_or_alias)"
+    },
+    {
+      "stage": "embed_text",
+      "start_offset_s": 1.9191,
+      "input": {
+        "query_preview": "red leather sofa"
+      },
+      "output": {
+        "vector_dim": 1024
+      },
+      "elapsed_s": 6.3454,
+      "status": "ok"
+    },
+    {
+      "stage": "es_knn_description",
+      "start_offset_s": 8.2647,
+      "input": {
+        "fetch_k": 50,
+        "has_filter": false
+      },
+      "output": {},
+      "elapsed_s": 0.3023,
+      "status": "error",
+      "error": "NotFoundError(404, 'index_not_found_exception', 'no such index [products]', products, index_or_alias)"
+    }
+  ]
+}

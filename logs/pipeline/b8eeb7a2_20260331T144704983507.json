@@ -1,0 +1,31 @@
+{
+  "session_id": "b8eeb7a2-26d2-4ba3-9618-e661ad83f546",
+  "timestamp": "2026-03-31T14:46:58.979161+00:00",
+  "user_message": "I need a gift for someone who loves cooking",
+  "total_elapsed_s": 6.0049,
+  "stages": [
+    {
+      "stage": "agent_invoke",
+      "start_offset_s": 0.0001,
+      "input": {
+        "session_id": "b8eeb7a2-26d2-4ba3-9618-e661ad83f546"
+      },
+      "output": {
+        "message_count": 2
+      },
+      "elapsed_s": 6.0041,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_1",
+      "start_offset_s": 0.0143,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 5.9628,
+      "status": "ok"
+    }
+  ]
+}

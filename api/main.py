@@ -144,10 +144,17 @@ def serve_upload(filename: str):
 def chat(req: ChatRequest):
     """Send a message to the shopping agent."""
     import uuid
+    from pipeline_monitor import PipelineMonitor, PipelineCallback, set_monitor
+
     agent = _get_agent()
 
-    session_id  = req.session_id or str(uuid.uuid4())
+    session_id   = req.session_id or str(uuid.uuid4())
     checkpointer = _get_checkpointer()
+
+    # Initialise a per-request pipeline monitor and expose it via thread-local
+    # storage so downstream code (search.py) can record sub-stage timings.
+    monitor = PipelineMonitor(session_id=session_id, user_message=req.message or "")
+    set_monitor(monitor)
 
     # When checkpointer is available, LangGraph manages history via thread_id.
     # When not available, reconstruct history from the client-supplied list.
@@ -178,9 +185,17 @@ def chat(req: ChatRequest):
     else:
         config = {}
 
+    # Attach the pipeline callback so LLM turns and tool boundaries are timed
+    config["callbacks"] = [PipelineCallback(monitor)]
+
     try:
-        result = agent.invoke(invoke_kwargs, config=config)
+        with monitor.stage("agent_invoke", {"session_id": session_id}) as out:
+            result = agent.invoke(invoke_kwargs, config=config)
+            # Count how many messages the agent produced
+            out["message_count"] = len(result.get("messages", []))
     except Exception as e:
+        monitor.save()
+        set_monitor(None)
         raise HTTPException(status_code=500, detail=str(e))
 
     # Extract last AI reply and tool call log
@@ -197,6 +212,10 @@ def chat(req: ChatRequest):
                         "args": {k: v for k, v in tc.get("args", {}).items()
                                  if k != "image_b64"},
                     })
+
+    log_path = monitor.save()
+    set_monitor(None)
+    print(f"[monitor] {session_id[:8]} → {log_path}", file=sys.stderr)
 
     return ChatResponse(reply=reply, session_id=session_id, tool_calls=tool_calls_log)
 

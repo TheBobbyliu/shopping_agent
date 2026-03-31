@@ -1,0 +1,31 @@
+{
+  "session_id": "f24336ea-d77d-4891-b0ac-0129563d63af",
+  "timestamp": "2026-03-31T17:09:59.209005+00:00",
+  "user_message": "show me more",
+  "total_elapsed_s": 2.8422,
+  "stages": [
+    {
+      "stage": "agent_invoke",
+      "start_offset_s": 0.0009,
+      "input": {
+        "session_id": "f24336ea-d77d-4891-b0ac-0129563d63af"
+      },
+      "output": {
+        "message_count": 2
+      },
+      "elapsed_s": 2.8406,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_1",
+      "start_offset_s": 0.0674,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 2.7612,
+      "status": "ok"
+    }
+  ]
+}

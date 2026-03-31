@@ -1,0 +1,126 @@
+{
+  "session_id": "91351dc4-83bf-4108-8504-45f10df8a3dc",
+  "timestamp": "2026-03-31T14:47:04.992258+00:00",
+  "user_message": "Show me a table lamp with warm lighting",
+  "total_elapsed_s": 35.3999,
+  "stages": [
+    {
+      "stage": "agent_invoke",
+      "start_offset_s": 0.0001,
+      "input": {
+        "session_id": "91351dc4-83bf-4108-8504-45f10df8a3dc"
+      },
+      "output": {
+        "message_count": 4
+      },
+      "elapsed_s": 35.3979,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_1",
+      "start_offset_s": 0.011,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 1.3533,
+      "status": "ok"
+    },
+    {
+      "stage": "tool_product_search_1",
+      "start_offset_s": 1.3672,
+      "input": {
+        "args_preview": "{'query': 'table lamp warm lighting'}"
+      },
+      "output": {
+        "preview": "content='[{\"item_id\": \"B0824FLNHK\", \"name\": \"Amazon Brand – Ravenna Home Contemporary Cylindrical Glass Table Lamp, LED Bulb Included, 24.5\\\\\"H, Clear\", \"category\": \"LAMP\", \"description\": \"13\\\\\"W x 13"
+      },
+      "elapsed_s": 22.5765,
+      "status": "ok"
+    },
+    {
+      "stage": "embed_text",
+      "start_offset_s": 1.3686,
+      "input": {
+        "query_preview": "table lamp warm lighting"
+      },
+      "output": {
+        "vector_dim": 1024
+      },
+      "elapsed_s": 5.2936,
+      "status": "ok"
+    },
+    {
+      "stage": "es_knn_description",
+      "start_offset_s": 6.6622,
+      "input": {
+        "fetch_k": 50,
+        "has_filter": false
+      },
+      "output": {
+        "hits_count": 50,
+        "top_score": 0.827986
+      },
+      "elapsed_s": 0.5758,
+      "status": "ok"
+    },
+    {
+      "stage": "es_bm25",
+      "start_offset_s": 7.2381,
+      "input": {
+        "query_preview": "table lamp warm lighting",
+        "fetch_k": 50
+      },
+      "output": {
+        "hits_count": 50,
+        "top_score": 19.568993
+      },
+      "elapsed_s": 0.4193,
+      "status": "ok"
+    },
+    {
+      "stage": "rrf_fusion",
+      "start_offset_s": 7.6574,
+      "input": {
+        "channel_count": 2
+      },
+      "output": {
+        "unique_candidates": 73,
+        "after_limit": 50,
+        "top_rrf_score": 0.032787
+      },
+      "elapsed_s": 0.0002,
+      "status": "ok"
+    },
+    {
+      "stage": "reranking",
+      "start_offset_s": 7.6578,
+      "input": {
+        "candidates": 50,
+        "query_preview": "table lamp warm lighting"
+      },
+      "output": {
+        "top_k": 5,
+        "top_rerank_score": -0.46035,
+        "score_range": [
+          -2.845397,
+          -0.46035
+        ]
+      },
+      "elapsed_s": 15.8363,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_2",
+      "start_offset_s": 24.0714,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 11.1672,
+      "status": "ok"
+    }
+  ]
+}

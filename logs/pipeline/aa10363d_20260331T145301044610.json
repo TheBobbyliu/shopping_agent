@@ -1,0 +1,126 @@
+{
+  "session_id": "aa10363d-b15f-41df-930b-8773536d04ec",
+  "timestamp": "2026-03-31T14:52:09.607674+00:00",
+  "user_message": "I want wooden ones",
+  "total_elapsed_s": 51.4375,
+  "stages": [
+    {
+      "stage": "agent_invoke",
+      "start_offset_s": 0.0002,
+      "input": {
+        "session_id": "aa10363d-b15f-41df-930b-8773536d04ec"
+      },
+      "output": {
+        "message_count": 8
+      },
+      "elapsed_s": 51.4359,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_1",
+      "start_offset_s": 0.0318,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 0.8577,
+      "status": "ok"
+    },
+    {
+      "stage": "tool_product_search_1",
+      "start_offset_s": 0.8925,
+      "input": {
+        "args_preview": "{'query': 'wooden bookshelves'}"
+      },
+      "output": {
+        "preview": "content='[{\"item_id\": \"B07VTNCW96\", \"name\": \"Stone & Beam Modern Rustic Round Wood and Galvanized Metal Wall Shelf Decor, 24 Inch (Renewed)\", \"category\": \"SHELF\", \"description\": \"Wooden shelves surrou"
+      },
+      "elapsed_s": 37.6013,
+      "status": "ok"
+    },
+    {
+      "stage": "embed_text",
+      "start_offset_s": 0.8936,
+      "input": {
+        "query_preview": "wooden bookshelves"
+      },
+      "output": {
+        "vector_dim": 1024
+      },
+      "elapsed_s": 7.2519,
+      "status": "ok"
+    },
+    {
+      "stage": "es_knn_description",
+      "start_offset_s": 8.1456,
+      "input": {
+        "fetch_k": 50,
+        "has_filter": false
+      },
+      "output": {
+        "hits_count": 50,
+        "top_score": 0.826926
+      },
+      "elapsed_s": 0.7264,
+      "status": "ok"
+    },
+    {
+      "stage": "es_bm25",
+      "start_offset_s": 8.8721,
+      "input": {
+        "query_preview": "wooden bookshelves",
+        "fetch_k": 50
+      },
+      "output": {
+        "hits_count": 25,
+        "top_score": 14.322184
+      },
+      "elapsed_s": 0.4151,
+      "status": "ok"
+    },
+    {
+      "stage": "rrf_fusion",
+      "start_offset_s": 9.2872,
+      "input": {
+        "channel_count": 2
+      },
+      "output": {
+        "unique_candidates": 67,
+        "after_limit": 50,
+        "top_rrf_score": 0.032018
+      },
+      "elapsed_s": 0.0001,
+      "status": "ok"
+    },
+    {
+      "stage": "reranking",
+      "start_offset_s": 9.2879,
+      "input": {
+        "candidates": 50,
+        "query_preview": "wooden bookshelves"
+      },
+      "output": {
+        "top_k": 5,
+        "top_rerank_score": 2.75148,
+        "score_range": [
+          -2.569928,
+          2.75148
+        ]
+      },
+      "elapsed_s": 27.9647,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_2",
+      "start_offset_s": 39.68,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 11.5704,
+      "status": "ok"
+    }
+  ]
+}

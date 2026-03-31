@@ -1,0 +1,126 @@
+{
+  "session_id": "f24336ea-d77d-4891-b0ac-0129563d63af",
+  "timestamp": "2026-03-31T17:10:38.661712+00:00",
+  "user_message": "I am searching for blue chairs",
+  "total_elapsed_s": 44.7783,
+  "stages": [
+    {
+      "stage": "agent_invoke",
+      "start_offset_s": 0.0002,
+      "input": {
+        "session_id": "f24336ea-d77d-4891-b0ac-0129563d63af"
+      },
+      "output": {
+        "message_count": 8
+      },
+      "elapsed_s": 44.777,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_1",
+      "start_offset_s": 0.0508,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 2.2051,
+      "status": "ok"
+    },
+    {
+      "stage": "tool_product_search_1",
+      "start_offset_s": 2.2627,
+      "input": {
+        "args_preview": "{'query': 'blue chairs'}"
+      },
+      "output": {
+        "preview": "content='[{\"item_id\": \"B01D7P5NI8\", \"name\": \"AmazonBasics Low-Back Computer Task Office Desk Chair with Swivel Casters - Blue\", \"category\": \"CHAIR\", \"description\": \"舒适的任务和电脑椅,蓝色轮廓网眼背部提供支撑和透气性 气动座椅高度调节"
+      },
+      "elapsed_s": 34.3211,
+      "status": "ok"
+    },
+    {
+      "stage": "embed_text",
+      "start_offset_s": 2.27,
+      "input": {
+        "query_preview": "blue chairs"
+      },
+      "output": {
+        "vector_dim": 1024
+      },
+      "elapsed_s": 6.6345,
+      "status": "ok"
+    },
+    {
+      "stage": "es_knn_description",
+      "start_offset_s": 8.9047,
+      "input": {
+        "fetch_k": 50,
+        "has_filter": false
+      },
+      "output": {
+        "hits_count": 50,
+        "top_score": 0.822499
+      },
+      "elapsed_s": 0.856,
+      "status": "ok"
+    },
+    {
+      "stage": "es_bm25",
+      "start_offset_s": 9.7607,
+      "input": {
+        "query_preview": "blue chairs",
+        "fetch_k": 50
+      },
+      "output": {
+        "hits_count": 50,
+        "top_score": 8.743187
+      },
+      "elapsed_s": 1.1307,
+      "status": "ok"
+    },
+    {
+      "stage": "rrf_fusion",
+      "start_offset_s": 10.8916,
+      "input": {
+        "channel_count": 2
+      },
+      "output": {
+        "unique_candidates": 80,
+        "after_limit": 50,
+        "top_rrf_score": 0.031054
+      },
+      "elapsed_s": 0.0002,
+      "status": "ok"
+    },
+    {
+      "stage": "reranking",
+      "start_offset_s": 10.8939,
+      "input": {
+        "candidates": 50,
+        "query_preview": "blue chairs"
+      },
+      "output": {
+        "top_k": 5,
+        "top_rerank_score": 2.746562,
+        "score_range": [
+          -1.010487,
+          2.746562
+        ]
+      },
+      "elapsed_s": 25.6441,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_2",
+      "start_offset_s": 36.6868,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 8.0453,
+      "status": "ok"
+    }
+  ]
+}

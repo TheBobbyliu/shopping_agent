@@ -11,6 +11,16 @@ from typing import Optional
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "preprocessing"))
 
+# Pipeline monitoring — imported lazily so search.py works without the monitor
+def _stage(name: str, input_summary: dict | None = None):
+    """Return a pipeline_stage context manager, or a no-op if monitor unavailable."""
+    try:
+        from pipeline_monitor import pipeline_stage
+        return pipeline_stage(name, input_summary)
+    except ImportError:
+        from contextlib import nullcontext
+        return nullcontext({})
+
 RRF_K    = 60
 # ES_INDEX: production default is "products". Tests override via conftest.py.
 ES_INDEX = os.environ.get("ES_INDEX", os.environ.get("ES_TEST_INDEX", "products_test"))
@@ -104,19 +114,29 @@ def hybrid_search(
     # --- Image understanding + embedding (if image provided) ---
     img_vec = None
     if image_url:
-        img_b64, tmp_path = _fetch_image(image_url)
+        with _stage("img_fetch", {"url": image_url[:120]}) as out:
+            img_b64, tmp_path = _fetch_image(image_url)
+            out["size_bytes"] = len(img_b64)
+
         try:
-            # Understand image: get a text description for the text search channels
-            img_description = describe_image(img_b64)
+            with _stage("describe_image", {"img_size_bytes": len(img_b64)}) as out:
+                img_description = describe_image(img_b64)
+                out["description_preview"] = img_description[:120]
+                out["char_count"] = len(img_description)
             if not query_text or not query_text.strip():
                 query_text = img_description
-            # Extract image embedding for the image HNSW channel
-            img_vec = client.embed_image(tmp_path)
+
+            with _stage("embed_image") as out:
+                img_vec = client.embed_image(tmp_path)
+                out["vector_dim"] = len(img_vec)
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
     # --- Channel 1: description vector (HNSW) ---
-    txt_vec  = client.embed_text(query_text)
+    with _stage("embed_text", {"query_preview": query_text[:120]}) as out:
+        txt_vec = client.embed_text(query_text)
+        out["vector_dim"] = len(txt_vec)
+
     knn_body: dict = {
         "field": "description_vector",
         "query_vector": txt_vec,
@@ -125,15 +145,23 @@ def hybrid_search(
     }
     if knn_filter:
         knn_body["filter"] = {"bool": {"must": knn_filter}}
-    knn_hits = es.search(index=ES_INDEX, knn=knn_body, size=fetch_k,
-                         _source=True)["hits"]["hits"]
+
+    with _stage("es_knn_description", {"fetch_k": fetch_k, "has_filter": bool(knn_filter)}) as out:
+        knn_hits = es.search(index=ES_INDEX, knn=knn_body, size=fetch_k,
+                             _source=True)["hits"]["hits"]
+        out["hits_count"] = len(knn_hits)
+        out["top_score"]  = round(knn_hits[0]["_score"], 6) if knn_hits else None
 
     # --- Channel 2: BM25 (lexical) ---
     bm25_q: dict = {"match": {"description": {"query": query_text}}}
     if knn_filter:
         bm25_q = {"bool": {"must": [bm25_q, *knn_filter]}}
-    bm25_hits = es.search(index=ES_INDEX, query=bm25_q, size=fetch_k,
-                           _source=True)["hits"]["hits"]
+
+    with _stage("es_bm25", {"query_preview": query_text[:80], "fetch_k": fetch_k}) as out:
+        bm25_hits = es.search(index=ES_INDEX, query=bm25_q, size=fetch_k,
+                               _source=True)["hits"]["hits"]
+        out["hits_count"] = len(bm25_hits)
+        out["top_score"]  = round(bm25_hits[0]["_score"], 6) if bm25_hits else None
 
     channels = [knn_hits, bm25_hits]
 
@@ -147,38 +175,52 @@ def hybrid_search(
         }
         if knn_filter:
             img_body["filter"] = {"bool": {"must": knn_filter}}
-        channels.append(
-            es.search(index=ES_INDEX, knn=img_body, size=fetch_k,
-                      _source=True)["hits"]["hits"]
-        )
+
+        with _stage("es_knn_image", {"fetch_k": fetch_k}) as out:
+            img_hits = es.search(index=ES_INDEX, knn=img_body, size=fetch_k,
+                          _source=True)["hits"]["hits"]
+            out["hits_count"] = len(img_hits)
+            out["top_score"]  = round(img_hits[0]["_score"], 6) if img_hits else None
+        channels.append(img_hits)
 
     # --- RRF fusion ---
-    rrf_scores: dict[str, float] = {}
-    sources:    dict[str, dict]  = {}
-    for channel in channels:
-        for rank, hit in enumerate(channel, start=1):
-            iid = hit["_source"]["item_id"]
-            rrf_scores[iid] = rrf_scores.get(iid, 0.0) + _rrf(rank)
-            sources[iid] = hit["_source"]
+    with _stage("rrf_fusion", {"channel_count": len(channels)}) as out:
+        rrf_scores: dict[str, float] = {}
+        sources:    dict[str, dict]  = {}
+        for channel in channels:
+            for rank, hit in enumerate(channel, start=1):
+                iid = hit["_source"]["item_id"]
+                rrf_scores[iid] = rrf_scores.get(iid, 0.0) + _rrf(rank)
+                sources[iid] = hit["_source"]
 
-    # Take the top fetch_k candidates for reranking (or top_k if no reranking)
-    candidate_limit = fetch_k if rerank else top_k
-    candidates = sorted(rrf_scores.items(), key=lambda x: -x[1])[:candidate_limit]
+        # Take the top fetch_k candidates for reranking (or top_k if no reranking)
+        candidate_limit = fetch_k if rerank else top_k
+        candidates = sorted(rrf_scores.items(), key=lambda x: -x[1])[:candidate_limit]
+        out["unique_candidates"] = len(rrf_scores)
+        out["after_limit"]       = len(candidates)
+        out["top_rrf_score"]     = round(candidates[0][1], 6) if candidates else None
 
     # --- Reranker ---
     if rerank and candidates:
-        reranker = _get_reranker()
-        cand_ids  = [iid for iid, _ in candidates]
-        passages  = [
+        cand_ids = [iid for iid, _ in candidates]
+        passages = [
             (sources[iid].get("name", "") + " " + sources[iid].get("description", ""))[:512]
             for iid in cand_ids
         ]
-        pairs  = [[query_text, p] for p in passages]
-        scores = reranker.compute_score(pairs)
-        if isinstance(scores, float):
-            scores = [scores]
+        pairs = [[query_text, p] for p in passages]
 
-        ranked = sorted(zip(cand_ids, scores), key=lambda x: -x[1])[:top_k]
+        with _stage("reranking", {"candidates": len(cand_ids), "query_preview": query_text[:80]}) as out:
+            reranker = _get_reranker()
+            scores   = reranker.compute_score(pairs)
+            if isinstance(scores, float):
+                scores = [scores]
+            ranked = sorted(zip(cand_ids, scores), key=lambda x: -x[1])[:top_k]
+            out["top_k"]          = len(ranked)
+            out["top_rerank_score"] = round(float(ranked[0][1]), 6) if ranked else None
+            out["score_range"]    = [
+                round(float(ranked[-1][1]), 6),
+                round(float(ranked[0][1]),  6),
+            ] if ranked else []
     else:
         ranked = [(iid, rrf_scores[iid]) for iid, _ in candidates[:top_k]]
 

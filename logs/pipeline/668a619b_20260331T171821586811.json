@@ -1,0 +1,54 @@
+{
+  "session_id": "668a619b-4340-4e7e-91d8-c7a4d3f7be69",
+  "timestamp": "2026-03-31T17:18:13.381518+00:00",
+  "user_message": "Tell me more about product B07JCDQWM6",
+  "total_elapsed_s": 8.2084,
+  "stages": [
+    {
+      "stage": "agent_invoke",
+      "start_offset_s": 0.0002,
+      "input": {
+        "session_id": "668a619b-4340-4e7e-91d8-c7a4d3f7be69"
+      },
+      "output": {
+        "message_count": 8
+      },
+      "elapsed_s": 8.2049,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_1",
+      "start_offset_s": 0.0371,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 2.0054,
+      "status": "ok"
+    },
+    {
+      "stage": "tool_get_product_info_1",
+      "start_offset_s": 2.0457,
+      "input": {
+        "args_preview": "{'item_id': 'B07JCDQWM6'}"
+      },
+      "output": {
+        "preview": "content='{\"item_id\": \"B07JCDQWM6\", \"name\": \"Amazon Brand – Rivet Thomas Modern Leather Sofa Couch, 81.5\\\\\"W, Chestnut\", \"description\": \"This top-grain leather sofa can bring natural warmth to your liv"
+      },
+      "elapsed_s": 0.0256,
+      "status": "ok"
+    },
+    {
+      "stage": "llm_2",
+      "start_offset_s": 2.0735,
+      "input": {
+        "model": "ChatOpenAI",
+        "num_prompts": 1
+      },
+      "output": {},
+      "elapsed_s": 6.1094,
+      "status": "ok"
+    }
+  ]
+}
