@@ -35,9 +35,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "preprocessing"))
 
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.requests import Request
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from langchain_core.messages import HumanMessage, AIMessage
 from pydantic import BaseModel
+from project_logging import build_error_response_content, record_error
 
 
 def _save_upload(image_bytes: bytes) -> str:
@@ -45,6 +47,25 @@ def _save_upload(image_bytes: bytes) -> str:
     filename = f"{uuid.uuid4().hex}.jpg"
     ((_UPLOAD_DIR) / filename).write_bytes(image_bytes)
     return f"{_API_BASE_URL}/uploads/{filename}"
+
+
+def _log_api_error(
+    event: str,
+    error: BaseException | str,
+    *,
+    session_id: str | None = None,
+    request: Request | None = None,
+    extra: dict | None = None,
+) -> dict[str, str]:
+    context: dict[str, object] = dict(extra or {})
+    if session_id:
+        context["session_id"] = session_id
+    if request is not None:
+        context["method"] = request.method
+        context["path"] = request.url.path
+    log_file = record_error(event, error, context=context)
+    print(f"[error] {event} → {log_file}", file=sys.stderr)
+    return build_error_response_content(log_file)
 
 
 @asynccontextmanager
@@ -76,6 +97,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    payload = _log_api_error("api.unhandled_exception", exc, request=request)
+    return JSONResponse(status_code=500, content=payload)
+
 # ---------------------------------------------------------------------------
 # Singletons — loaded once at startup
 # ---------------------------------------------------------------------------
@@ -94,8 +121,13 @@ def _get_checkpointer():
             from context import make_checkpointer
             _checkpointer = make_checkpointer(db_url)
         except Exception as e:
-            import sys
+            payload = _log_api_error(
+                "api.checkpointer_init",
+                e,
+                extra={"database_url": db_url},
+            )
             print(f"[api] Context DB unavailable ({e}); running stateless", file=sys.stderr)
+            print(f"[api] See {payload['log_file']}", file=sys.stderr)
             _checkpointer = None   # fallback: no persistence
     return _checkpointer
 
@@ -123,6 +155,16 @@ class ChatResponse(BaseModel):
     reply:      str
     session_id: Optional[str]  = None
     tool_calls: list[dict]     = []
+
+
+class EmbedRequest(BaseModel):
+    text: str
+    image_path: str
+
+
+class EmbedResponse(BaseModel):
+    description_vector: list[float]
+    image_vector: list[float]
 
 
 def _extract_reply_and_tool_calls(messages: list) -> tuple[str, list[dict]]:
@@ -158,6 +200,25 @@ def ready():
     if not _startup_complete:
         raise HTTPException(status_code=503, detail="Starting up")
     return {"status": "ready"}
+
+
+@app.post("/embed", response_model=EmbedResponse)
+def embed(req: EmbedRequest):
+    """Embed text + image using the already-loaded singleton model.
+    Used by the warehouse CLI so it reuses the warm model without cold start."""
+    if not _startup_complete:
+        raise HTTPException(status_code=503, detail="Embedding service not ready")
+    path = Path(req.image_path)
+    if not path.is_file():
+        raise HTTPException(status_code=400, detail=f"image_path not found: {req.image_path}")
+    from search import _get_embedding_client
+    client = _get_embedding_client()
+    desc_vec = client.embed_text(req.text)
+    img_vec = client.embed_image(str(path))
+    return EmbedResponse(
+        description_vector=list(desc_vec),
+        image_vector=list(img_vec),
+    )
 
 
 @app.get("/uploads/{filename}")
@@ -232,7 +293,20 @@ def chat(req: ChatRequest):
     except Exception as e:
         monitor.save()
         set_monitor(None)
-        raise HTTPException(status_code=500, detail=str(e))
+        payload = _log_api_error(
+            "api.chat",
+            e,
+            session_id=session_id,
+            extra={
+                "endpoint": "/chat",
+                "message_preview": (req.message or "")[:200],
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=payload["detail"],
+            headers={"X-Log-File": payload["log_file"]},
+        )
 
     log_path = monitor.save()
     set_monitor(None)
@@ -383,7 +457,16 @@ async def chat_stream(req: ChatRequest):
         except Exception as e:
             monitor.save()
             set_monitor(None)
-            yield _sse("error", {"detail": str(e)})
+            payload = _log_api_error(
+                "api.chat_stream",
+                e,
+                session_id=session_id,
+                extra={
+                    "endpoint": "/chat/stream",
+                    "message_preview": (req.message or "")[:200],
+                },
+            )
+            yield _sse("error", payload)
             return
 
         full_reply = "".join(reply_parts)
