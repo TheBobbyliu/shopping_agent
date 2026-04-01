@@ -6,3 +6,7 @@ data/abo-*
 */__pycache__
 .DS_store
 frontend-next/node_modules
+logs/*
+uploads/
+frontend-next
+data/embedded_full.jsonl

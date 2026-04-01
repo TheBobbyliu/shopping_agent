@@ -4,6 +4,7 @@ Shared by tools.py and can be tested independently.
 """
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
 from pathlib import Path
@@ -81,7 +82,7 @@ def _fetch_image(image_url: str) -> tuple[str, str]:
 
 
 def hybrid_search(
-    query_text: str,
+    query_text: Optional[str] = None,
     image_url: Optional[str] = None,
     top_k: int = 8,
     category: Optional[str] = None,
@@ -93,8 +94,12 @@ def hybrid_search(
 
     When image_url is provided the search engine:
       1. Downloads the image and calls GPT-4o to produce a text description.
-      2. Uses that description as query_text if none was supplied.
-      3. Extracts an image embedding for the image HNSW channel.
+      2. Uses that description as query_text.
+      3. Extracts an image embedding for the image search.
+      4. Extracts a text embedding from description for the text search.
+    
+    When text provided:
+      1. Extracts a text embedding for the text search.
 
     Args:
         query_text:              Natural language query (may be empty when image_url is given).
@@ -104,6 +109,10 @@ def hybrid_search(
         rerank:                  Whether to apply bge-reranker-v2-m3 after RRF fusion.
         rerank_fetch_multiplier: Fetch top_k * this many candidates before reranking.
     """
+    # Edge case: query / image both not exist 
+    if not query_text and not image_url:
+        raise ValueError("query_text and image_url should not be both empty")
+    
     es     = _get_es()
     client = _get_embedding_client()
 
@@ -111,32 +120,67 @@ def hybrid_search(
     fetch_k = max(50, top_k * rerank_fetch_multiplier) if rerank else top_k
     knn_filter = [{"term": {"category": category}}] if category else []
 
-    # --- Image understanding + embedding (if image provided) ---
+    # --- Embedding ---
     img_vec = None
+    txt_vec = None
+    tmp_path = None
+
+    # --- Image understanding + embedding (if image provided) ---
     if image_url:
         with _stage("img_fetch", {"url": image_url[:120]}) as out:
             img_b64, tmp_path = _fetch_image(image_url)
             out["size_bytes"] = len(img_b64)
 
         try:
-            with _stage("describe_image", {"img_size_bytes": len(img_b64)}) as out:
-                img_description = describe_image(img_b64)
-                out["description_preview"] = img_description[:120]
-                out["char_count"] = len(img_description)
-            if not query_text or not query_text.strip():
-                query_text = img_description
+            # Run image embedding and image understanding in parallel when PARALLEL_EMBED=1.
+            # Both calls are independent at this point (query_text is finalised above).
+            # asyncio.run() is safe here because hybrid_search() is called from a
+            # FastAPI sync thread-pool worker, which has no running event loop.
 
-            with _stage("embed_image") as out:
-                img_vec = client.embed_image(tmp_path)
-                out["vector_dim"] = len(img_vec)
+            def _desc_image():
+                with _stage("describe_image", {"img_size_bytes": len(img_b64)}) as out:
+                    img_description = describe_image(img_b64)
+                    out["description_preview"] = img_description[:120]
+                    out["char_count"] = len(img_description)
+                return img_description
+            
+            def _embed_text():
+                with _stage("embed_text", {"query_preview": query_text[:120]}) as out:
+                    vec = client.embed_text(query_text)
+                    out["vector_dim"] = len(vec)
+                return vec
+
+            def _embed_image():
+                with _stage("embed_image") as out:
+                    vec = client.embed_image(tmp_path)
+                    out["vector_dim"] = len(vec)
+                return vec
+            
+            if os.environ.get("PARALLEL_EMBED") == "1":
+                async def _gather_embeds():
+                    return await asyncio.gather(
+                        asyncio.to_thread(_desc_image),
+                        asyncio.to_thread(_embed_image),
+                    )
+                query_text, img_vec = asyncio.run(_gather_embeds())
+            else:
+                query_text = _desc_image()
+                img_vec = _embed_image()
+
+            txt_vec = _embed_text()
+        except Exception as e:
+            raise ValueError(f"Error while extracting features: {e}") from e
         finally:
             Path(tmp_path).unlink(missing_ok=True)
 
-    # --- Channel 1: description vector (HNSW) ---
-    with _stage("embed_text", {"query_preview": query_text[:120]}) as out:
-        txt_vec = client.embed_text(query_text)
-        out["vector_dim"] = len(txt_vec)
+    # query_text should be there
+    else:
+        with _stage("embed_text", {"query_preview": query_text[:120]}) as out:
+            txt_vec = client.embed_text(query_text)
+            out["vector_dim"] = len(txt_vec)
 
+
+    # --- HNSW ----
     knn_body: dict = {
         "field": "description_vector",
         "query_vector": txt_vec,
@@ -211,6 +255,10 @@ def hybrid_search(
 
         with _stage("reranking", {"candidates": len(cand_ids), "query_preview": query_text[:80]}) as out:
             reranker = _get_reranker()
+            # All candidates are scored in a single batched call — this is already the
+            # optimal GPU utilisation pattern. Multithreading would not help: PyTorch
+            # serialises at the C++/CUDA level regardless of Python threads, and the GIL
+            # further prevents true concurrency for Python-level ops.
             scores   = reranker.compute_score(pairs)
             if isinstance(scores, float):
                 scores = [scores]
@@ -237,8 +285,8 @@ def hybrid_search(
             "color":       src.get("color", ""),
             "material":    src.get("material", ""),
             "brand":       src.get("brand", ""),
-            "image_path":  src.get("image_path", ""),
-            "image_url":   src.get("image_url", ""),
+            # image_path is a local server path — not useful to the LLM and causes
+            # broken image links when the LLM embeds it in markdown responses.
             "web_url":     src.get("web_url", ""),
             "score":       round(rrf_scores[iid], 6),
         }

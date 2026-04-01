@@ -24,6 +24,7 @@ import base64
 import math
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import Union
 
@@ -89,21 +90,28 @@ class _LocalBackend:
         )
         self._model.eval()
         self._torch = torch
+        # Protect the Rust HuggingFace tokenizer from concurrent access.
+        # Visualized_BGE's tokenizer is not thread-safe; both embed_texts and
+        # embed_images share the same instance, so parallel calls would raise
+        # "RuntimeError: Already borrowed". This lock serializes tokenizer use
+        # while still allowing I/O and image-decoding work to overlap in threads.
+        self._model_lock = threading.Lock()
         print("[LocalBackend] Ready.", file=sys.stderr)
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         results = []
         for batch in _chunks(texts, 32):
-            tokenized = self._model.tokenizer(
-                batch,
-                return_tensors="pt",
-                padding=True,
-                truncation=True,
-                max_length=512,
-            ).to(self._model.device)
-            with self._torch.no_grad():
-                vecs = self._model.encode_text(tokenized)
-            results.extend(vecs.cpu().float().tolist())
+            with self._model_lock:
+                tokenized = self._model.tokenizer(
+                    batch,
+                    return_tensors="pt",
+                    padding=True,
+                    truncation=True,
+                    max_length=512,
+                ).to(self._model.device)
+                with self._torch.no_grad():
+                    vecs = self._model.encode_text(tokenized)
+                results.extend(vecs.cpu().float().tolist())
         return results
 
     def embed_images(self, paths: list[Path]) -> list[list[float]]:
@@ -113,8 +121,9 @@ class _LocalBackend:
             img_tensor = self._model.preprocess_val(
                 Image.open(path).convert("RGB")
             ).unsqueeze(0).to(self._model.device)
-            with self._torch.no_grad():
-                vec = self._model.encode_image(img_tensor)
+            with self._model_lock:
+                with self._torch.no_grad():
+                    vec = self._model.encode_image(img_tensor)
             results.append(vec.cpu().float()[0].tolist())
         return results
 

@@ -87,7 +87,7 @@ class PipelineMonitor:
     def save(self) -> str:
         _LOG_DIR.mkdir(parents=True, exist_ok=True)
         ts    = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%f")
-        fname = _LOG_DIR / f"{self.session_id[:8]}_{ts}.json"
+        fname = _LOG_DIR / f"{ts}_{self.session_id[:8]}.json"
 
         # Sort stages by start_offset_s so the file reads chronologically
         # (callback-inserted entries may land out of insertion order)
@@ -181,17 +181,48 @@ try:
             t0, entry = self._llm_starts.pop(key)
             entry["elapsed_s"] = round(time.perf_counter() - t0, 4)
             entry["status"]    = "ok"
-            # Extract token usage if available
+
+            # Capture the LLM output text
             try:
-                usage = {}
+                texts = []
                 for gen_list in response.generations:
                     for g in gen_list:
-                        info = getattr(g, "generation_info", None) or {}
-                        for k in ("input_tokens", "output_tokens", "total_tokens"):
-                            if k in info:
-                                usage[k] = info[k]
-                if usage:
-                    entry["output"]["token_usage"] = usage
+                        text = getattr(g, "text", "") or ""
+                        if not text and hasattr(g, "message"):
+                            content = getattr(g.message, "content", "")
+                            if isinstance(content, str):
+                                text = content
+                        if text:
+                            texts.append(text)
+                if texts:
+                    full_text = "\n".join(texts)
+                    entry["output"]["text_preview"] = full_text[:400]
+                    entry["output"]["text_chars"]   = len(full_text)
+            except Exception:
+                pass
+
+            # Extract token usage — OpenAI stores it in response.llm_output,
+            # Anthropic and others may store it in generation_info.
+            try:
+                usage: dict = {}
+                llm_output = getattr(response, "llm_output", None) or {}
+                tok = llm_output.get("token_usage", {})
+                if tok:
+                    usage = {
+                        "input_tokens":  tok.get("prompt_tokens"),
+                        "output_tokens": tok.get("completion_tokens"),
+                        "total_tokens":  tok.get("total_tokens"),
+                    }
+                if not any(v for v in usage.values() if v is not None):
+                    for gen_list in response.generations:
+                        for g in gen_list:
+                            info = getattr(g, "generation_info", None) or {}
+                            for k in ("input_tokens", "output_tokens", "total_tokens"):
+                                if k in info:
+                                    usage[k] = info[k]
+                filtered = {k: v for k, v in usage.items() if v is not None}
+                if filtered:
+                    entry["output"]["token_usage"] = filtered
             except Exception:
                 pass
 
@@ -226,15 +257,36 @@ try:
             entry["elapsed_s"] = round(time.perf_counter() - t0, 4)
             entry["status"]    = "ok"
             try:
-                out_str = str(output)
+                raw_output = getattr(output, "content", output)
+                if isinstance(raw_output, list):
+                    text_parts = []
+                    for block in raw_output:
+                        if isinstance(block, str):
+                            text_parts.append(block)
+                        elif isinstance(block, dict) and isinstance(block.get("text"), str):
+                            text_parts.append(block["text"])
+                    out_str = "".join(text_parts) if text_parts else str(raw_output)
+                elif isinstance(raw_output, str):
+                    out_str = raw_output
+                else:
+                    out_str = str(raw_output)
+
                 # For product_search, show how many results came back
                 import json as _json
                 parsed = _json.loads(out_str)
                 if isinstance(parsed, list):
                     entry["output"]["result_count"] = len(parsed)
                     entry["output"]["item_ids"] = [p.get("item_id") for p in parsed[:5]]
+                elif isinstance(parsed, dict):
+                    entry["output"]["keys"] = list(parsed.keys())[:10]
+                    if "error" in parsed:
+                        entry["output"]["error"] = str(parsed["error"])[:200]
+                    else:
+                        entry["output"]["preview"] = out_str[:200]
+                else:
+                    entry["output"]["preview"] = out_str[:200]
             except Exception:
-                entry["output"]["preview"] = out_str[:200]
+                entry["output"]["preview"] = str(getattr(output, "content", output))[:200]
 
         def on_tool_error(self, error, run_id=None, **kwargs):
             key = str(run_id)

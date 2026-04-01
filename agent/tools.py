@@ -8,14 +8,73 @@ Three tools:
 """
 from __future__ import annotations
 
+import concurrent.futures
+import functools
 import json
+import logging
+from contextvars import copy_context
 from typing import Optional
 
 from langchain_core.tools import tool
 
+logger = logging.getLogger(__name__)
+
+# Timeout (seconds) before a tool call is considered stuck and retried once.
+_TOOL_TIMEOUT_S = 90
+_MAX_RETRIES = 1
+
+
+def _log_tool_error(tool_name: str, error_msg: str) -> None:
+    """Write a tool error to the pipeline monitor log (if active) and stderr."""
+    logger.error("[tool:%s] %s", tool_name, error_msg)
+    try:
+        from pipeline_monitor import get_monitor
+        monitor = get_monitor()
+        if monitor is not None:
+            with monitor.stage(f"tool_error_{tool_name}", {"error": error_msg}):
+                pass
+    except Exception:
+        pass
+
+
+def _tool_with_retry(fn):
+    """Wrap a tool function with timeout (90 s) and a single retry on timeout."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        last_err: str = ""
+        for attempt in range(_MAX_RETRIES + 1):
+            try:
+                ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+                ctx = copy_context()
+                future = ex.submit(ctx.run, fn, *args, **kwargs)
+                try:
+                    return future.result(timeout=_TOOL_TIMEOUT_S)
+                except concurrent.futures.TimeoutError:
+                    raise
+                finally:
+                    ex.shutdown(wait=False)  # don't block waiting for timed-out thread
+            except concurrent.futures.TimeoutError:
+                last_err = f"Tool '{fn.__name__}' timed out after {_TOOL_TIMEOUT_S}s."
+                if attempt < _MAX_RETRIES:
+                    continue  # retry once on timeout
+            except Exception as exc:
+                last_err = str(exc)
+                break  # non-timeout errors don't retry
+        _log_tool_error(fn.__name__, last_err)
+        return json.dumps({"error": last_err, "tool": fn.__name__})
+    return wrapper
+
+
+def _product_search_impl(query: Optional[str] = None, image_url: Optional[str] = None, top_k: int = 5) -> str:
+    from search import hybrid_search
+    top_k = max(1, min(top_k, 10))
+    results = hybrid_search(query_text=query, image_url=image_url, top_k=top_k)
+    return json.dumps(results, ensure_ascii=False)
+
 
 @tool
-def product_search(query: str, image_url: Optional[str] = None, top_k: int = 5) -> str:
+@_tool_with_retry
+def product_search(query: Optional[str] = None, image_url: Optional[str] = None, top_k: int = 5) -> str:
     """
     Search the product catalog using natural language, an optional product image URL, or both.
 
@@ -26,7 +85,7 @@ def product_search(query: str, image_url: Optional[str] = None, top_k: int = 5) 
 
     Args:
         query:     Natural language description of what the user is looking for.
-                   May be empty when image_url is the primary input.
+                   Could be empty when image_url is the primary input.
         image_url: URL of a product image (optional). Triggers visual similarity search.
         top_k:     Maximum number of results to return (1-10, default 5).
 
@@ -34,14 +93,11 @@ def product_search(query: str, image_url: Optional[str] = None, top_k: int = 5) 
         JSON list of matching products, each with item_id, name, category,
         description snippet, color, material, brand, and image_path.
     """
-    from search import hybrid_search
-
-    top_k = max(1, min(top_k, 10))
-    results = hybrid_search(query_text=query, image_url=image_url, top_k=top_k)
-    return json.dumps(results, ensure_ascii=False)
+    return _product_search_impl(query, image_url, top_k)
 
 
 @tool
+@_tool_with_retry
 def get_product_info(item_id: str) -> str:
     """
     Retrieve the full details of a single product by its item_id.
@@ -56,7 +112,6 @@ def get_product_info(item_id: str) -> str:
         JSON object with full product details, or an error message if not found.
     """
     from search import get_product
-
     product = get_product(item_id)
     if product is None:
         return json.dumps({"error": f"Product '{item_id}' not found."})
@@ -64,6 +119,7 @@ def get_product_info(item_id: str) -> str:
 
 
 @tool
+@_tool_with_retry
 def understand_image(image_url: str) -> str:
     """
     Analyze a product image and return a text description.
@@ -79,12 +135,11 @@ def understand_image(image_url: str) -> str:
         A concise product description (type, color, material, style, features).
     """
     from search import _fetch_image, describe_image
-
+    from pathlib import Path
     img_b64, tmp_path = _fetch_image(image_url)
     try:
         return describe_image(img_b64)
     finally:
-        from pathlib import Path
         Path(tmp_path).unlink(missing_ok=True)
 
 
