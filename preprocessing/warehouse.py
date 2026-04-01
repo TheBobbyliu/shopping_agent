@@ -169,7 +169,7 @@ def cmd_delete(args):
 
     es.indices.refresh(index=ES_INDEX)
     not_found = len(all_ids) - deleted
-    print(f"\nDeleted: {deleted}, Not found: {not_found}")
+    print(f"Deleted: {deleted}, Not found: {not_found}")
 
 
 def main():

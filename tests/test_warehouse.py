@@ -168,8 +168,7 @@ def test_delete_warns_on_missing_item(capsys):
          patch("warehouse._get_es", return_value=mock_es):
         warehouse.cmd_delete(MagicMock(json_file=None))
     err = capsys.readouterr().err
-    assert "[warn]" in err
-    assert "ZZZZ" in err
+    assert "[warn] ZZZZ — not found, skipping" in err
     mock_es.delete.assert_not_called()
 
 
