@@ -124,7 +124,71 @@ def cmd_check(args):
 
 
 def cmd_add(args):
-    pass  # implemented in Task 4
+    items = _load_json(args.json_file)
+
+    # Validate required fields
+    errors = []
+    for i, item in enumerate(items):
+        missing = REQUIRED_ADD_FIELDS - set(item.keys())
+        if missing:
+            errors.append(
+                f"  item[{i}] ({item.get('item_id', '?')}): missing {sorted(missing)}"
+            )
+    if errors:
+        print("[error] Missing required fields:", file=sys.stderr)
+        for msg in errors:
+            print(msg, file=sys.stderr)
+        sys.exit(1)
+
+    # Detect duplicates within input
+    seen: dict[str, int] = {}
+    duplicates = []
+    for i, item in enumerate(items):
+        iid = item["item_id"]
+        if iid in seen:
+            duplicates.append(f"  '{iid}' at index {seen[iid]} and {i}")
+        else:
+            seen[iid] = i
+    if duplicates:
+        print("[error] Duplicate item_ids in input:", file=sys.stderr)
+        for d in duplicates:
+            print(d, file=sys.stderr)
+        sys.exit(1)
+
+    all_ids = [item["item_id"] for item in items]
+    already_indexed = get_indexed_ids(ES_URL, ES_INDEX, all_ids)
+
+    for item in items:
+        if item["item_id"] in already_indexed:
+            print(f"[skip] {item['item_id']} — already indexed")
+
+    to_add = [item for item in items if item["item_id"] not in already_indexed]
+    skipped = len(items) - len(to_add)
+    total = len(to_add)
+    added = 0
+    errors_count = 0
+
+    es = _get_es()
+    for idx, item in enumerate(to_add, 1):
+        iid = item["item_id"]
+        print(f"[{idx}/{total}] {iid} — embedding...", end=" ", flush=True)
+        try:
+            vectors = _call_embed(item["description"], item["image_path"])
+        except Exception as e:
+            print(f"error (embed: {e})")
+            errors_count += 1
+            continue
+        doc = {**item, **vectors}
+        try:
+            es.index(index=ES_INDEX, id=iid, document=doc)
+            print("done")
+            added += 1
+        except Exception as e:
+            print(f"error (index: {e})")
+            errors_count += 1
+
+    es.indices.refresh(index=ES_INDEX)
+    print(f"\nAdded: {added}, Skipped: {skipped}, Errors: {errors_count}")
 
 
 def cmd_delete(args):

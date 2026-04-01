@@ -189,3 +189,88 @@ def test_delete_aborts_on_missing_item_id_field(capsys):
         with pytest.raises(SystemExit):
             warehouse.cmd_delete(MagicMock(json_file=None))
     assert "item_id" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# add — unit tests
+# ---------------------------------------------------------------------------
+
+def _embed_mock(desc_vec=None, img_vec=None):
+    return MagicMock(return_value={
+        "description_vector": desc_vec or [0.1] * 1024,
+        "image_vector":       img_vec  or [0.2] * 1024,
+    })
+
+
+def test_add_aborts_on_missing_required_field(capsys):
+    import warehouse
+    # item_id and description present but image_path missing
+    with patch("warehouse._load_json", return_value=[
+        {"item_id": "A001", "description": "a desc"},
+    ]):
+        with pytest.raises(SystemExit):
+            warehouse.cmd_add(MagicMock(json_file=None))
+    assert "image_path" in capsys.readouterr().err
+
+
+def test_add_aborts_on_duplicate_item_ids(capsys):
+    import warehouse
+    with patch("warehouse._load_json", return_value=[
+        {"item_id": "A001", "description": "d1", "image_path": "p1.jpg"},
+        {"item_id": "A001", "description": "d2", "image_path": "p2.jpg"},
+    ]):
+        with pytest.raises(SystemExit):
+            warehouse.cmd_add(MagicMock(json_file=None))
+    assert "Duplicate" in capsys.readouterr().err
+
+
+def test_add_skips_already_indexed_item(capsys):
+    import warehouse
+    items = [
+        {"item_id": "A001", "description": "d1", "image_path": "p1.jpg"},
+        {"item_id": "A002", "description": "d2", "image_path": "p2.jpg"},
+    ]
+    mock_es = MagicMock()
+    mock_es.indices = MagicMock()
+    with patch("warehouse._load_json", return_value=items), \
+         patch("warehouse.get_indexed_ids", return_value={"A001"}), \
+         patch("warehouse._call_embed", _embed_mock()), \
+         patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_add(MagicMock(json_file=None))
+    out = capsys.readouterr().out
+    assert "[skip] A001" in out
+    assert "Added: 1" in out
+    assert "Skipped: 1" in out
+    indexed_ids = [c.kwargs["id"] for c in mock_es.index.call_args_list]
+    assert "A002" in indexed_ids
+    assert "A001" not in indexed_ids
+
+
+def test_add_indexes_item_with_vectors(capsys):
+    import warehouse
+    items = [{"item_id": "A003", "description": "A blue cup", "image_path": "cup.jpg"}]
+    mock_es = MagicMock()
+    mock_es.indices = MagicMock()
+    with patch("warehouse._load_json", return_value=items), \
+         patch("warehouse.get_indexed_ids", return_value=set()), \
+         patch("warehouse._call_embed", _embed_mock(desc_vec=[0.5]*1024, img_vec=[0.6]*1024)), \
+         patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_add(MagicMock(json_file=None))
+    doc = mock_es.index.call_args.kwargs["document"]
+    assert doc["item_id"] == "A003"
+    assert doc["description_vector"] == [0.5] * 1024
+    assert doc["image_vector"] == [0.6] * 1024
+    assert "Added: 1" in capsys.readouterr().out
+
+
+def test_add_counts_embed_errors(capsys):
+    import warehouse
+    items = [{"item_id": "A004", "description": "desc", "image_path": "img.jpg"}]
+    mock_es = MagicMock()
+    with patch("warehouse._load_json", return_value=items), \
+         patch("warehouse.get_indexed_ids", return_value=set()), \
+         patch("warehouse._call_embed", side_effect=RuntimeError("API down")), \
+         patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_add(MagicMock(json_file=None))
+    assert "Errors: 1" in capsys.readouterr().out
+    mock_es.index.assert_not_called()
