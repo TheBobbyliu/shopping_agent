@@ -156,7 +156,7 @@ def test_delete_removes_existing_item(capsys):
     mock_es.delete.assert_called_once_with(index=warehouse.ES_INDEX, id="A001")
     out = capsys.readouterr().out
     assert "Deleted: 1" in out
-    assert "Not found: 0" in out
+    assert "Not found: 0, Errors: 0" in out
 
 
 def test_delete_warns_on_missing_item(capsys):

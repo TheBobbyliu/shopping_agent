@@ -61,6 +61,9 @@ def _load_json(path: str) -> list[dict]:
     if not isinstance(data, list):
         print("[error] JSON must be an array of objects", file=sys.stderr)
         sys.exit(1)
+    if not all(isinstance(item, dict) for item in data):
+        print("[error] JSON array elements must be objects", file=sys.stderr)
+        sys.exit(1)
     return data
 
 
@@ -162,14 +165,19 @@ def cmd_delete(args):
 
     es = _get_es()
     deleted = 0
+    errors_count = 0
     for iid in all_ids:
         if iid in existing:
-            es.delete(index=ES_INDEX, id=iid)
-            deleted += 1
+            try:
+                es.delete(index=ES_INDEX, id=iid)
+                deleted += 1
+            except Exception as exc:
+                print(f"[error] {iid} — delete failed: {exc}", file=sys.stderr)
+                errors_count += 1
 
     es.indices.refresh(index=ES_INDEX)
-    not_found = len(all_ids) - deleted
-    print(f"Deleted: {deleted}, Not found: {not_found}")
+    not_found = len(all_ids) - deleted - errors_count
+    print(f"Deleted: {deleted}, Not found: {not_found}, Errors: {errors_count}")
 
 
 def main():
