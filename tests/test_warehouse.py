@@ -47,3 +47,95 @@ def test_embed_endpoint_missing_image_returns_400():
         "image_path": "/nonexistent/path/image.jpg",
     })
     assert resp.status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Unit test helpers
+# ---------------------------------------------------------------------------
+
+def _sample_docs():
+    return [
+        {
+            "item_id": "A001", "name": "Red chair", "category": "FURNITURE",
+            "description": "A comfortable red chair",
+            "description_vector": [0.1] * 1024,
+            "image_vector": [0.2] * 1024,
+        },
+        {
+            "item_id": "A002", "name": "Blue lamp", "category": "LIGHTING",
+            "description": "A modern blue lamp",
+            "description_vector": [0.3] * 1024,
+            "image_vector": [0.4] * 1024,
+        },
+    ]
+
+
+def _make_es_mock(docs):
+    mock_es = MagicMock()
+
+    def fake_get(index, id):
+        for d in docs:
+            if d["item_id"] == id:
+                return {"_source": d}
+        raise Exception(f"Not found: {id}")
+    mock_es.get.side_effect = fake_get
+
+    def fake_search(**kwargs):
+        query = kwargs.get("query", {})
+        size = kwargs.get("size", 10)
+        if "term" in query:
+            cat = list(query["term"].values())[0]
+            hits = [{"_source": d} for d in docs if d.get("category") == cat][:size]
+        else:
+            hits = [{"_source": d} for d in docs][:size]
+        return {"hits": {"hits": hits}}
+    mock_es.search.side_effect = fake_search
+
+    return mock_es
+
+
+# ---------------------------------------------------------------------------
+# check — unit tests
+# ---------------------------------------------------------------------------
+
+def test_check_item_id_strips_vectors(capsys):
+    import warehouse
+    mock_es = _make_es_mock(_sample_docs())
+    args = MagicMock(item_id="A001", group=None, count=None)
+    with patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_check(args)
+    data = json.loads(capsys.readouterr().out)
+    assert data["item_id"] == "A001"
+    assert "description_vector" not in data
+    assert "image_vector" not in data
+
+
+def test_check_item_id_not_found_exits(capsys):
+    import warehouse
+    mock_es = _make_es_mock(_sample_docs())
+    args = MagicMock(item_id="ZZZZ", group=None, count=None)
+    with patch("warehouse._get_es", return_value=mock_es):
+        with pytest.raises(SystemExit):
+            warehouse.cmd_check(args)
+
+
+def test_check_group_filters_by_category(capsys):
+    import warehouse
+    mock_es = _make_es_mock(_sample_docs())
+    args = MagicMock(item_id=None, group="FURNITURE", count=10)
+    with patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_check(args)
+    data = json.loads(capsys.readouterr().out)
+    assert len(data) == 1
+    assert data[0]["item_id"] == "A001"
+    assert "description_vector" not in data[0]
+
+
+def test_check_count_returns_n_items(capsys):
+    import warehouse
+    mock_es = _make_es_mock(_sample_docs())
+    args = MagicMock(item_id=None, group=None, count=1)
+    with patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_check(args)
+    data = json.loads(capsys.readouterr().out)
+    assert len(data) == 1
