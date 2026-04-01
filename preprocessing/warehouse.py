@@ -160,7 +160,7 @@ def cmd_add(args):
 
     for item in items:
         if item["item_id"] in already_indexed:
-            print(f"[skip] {item['item_id']} — already indexed")
+            print(f"[skip] {item['item_id']} — already indexed", file=sys.stderr)
 
     to_add = [item for item in items if item["item_id"] not in already_indexed]
     skipped = len(items) - len(to_add)
@@ -175,9 +175,9 @@ def cmd_add(args):
         try:
             vectors = _call_embed(item["description"], item["image_path"])
         except Exception as e:
-            print(f"error (embed: {e})")
-            errors_count += 1
-            continue
+            print(file=sys.stdout)  # newline after the "embedding..." line
+            print(f"[error] embed failed for {iid}: {e}", file=sys.stderr)
+            sys.exit(1)
         doc = {**item, **vectors}
         try:
             es.index(index=ES_INDEX, id=iid, document=doc)

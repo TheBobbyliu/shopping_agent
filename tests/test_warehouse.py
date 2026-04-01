@@ -237,10 +237,10 @@ def test_add_skips_already_indexed_item(capsys):
          patch("warehouse._call_embed", _embed_mock()), \
          patch("warehouse._get_es", return_value=mock_es):
         warehouse.cmd_add(MagicMock(json_file=None))
-    out = capsys.readouterr().out
-    assert "[skip] A001" in out
-    assert "Added: 1" in out
-    assert "Skipped: 1" in out
+    captured = capsys.readouterr()
+    assert "[skip] A001" in captured.err
+    assert "Added: 1" in captured.out
+    assert "Skipped: 1" in captured.out
     indexed_ids = [c.kwargs["id"] for c in mock_es.index.call_args_list]
     assert "A002" in indexed_ids
     assert "A001" not in indexed_ids
@@ -263,14 +263,17 @@ def test_add_indexes_item_with_vectors(capsys):
     assert "Added: 1" in capsys.readouterr().out
 
 
-def test_add_counts_embed_errors(capsys):
+def test_add_exits_on_embed_failure(capsys):
     import warehouse
     items = [{"item_id": "A004", "description": "desc", "image_path": "img.jpg"}]
     mock_es = MagicMock()
     with patch("warehouse._load_json", return_value=items), \
          patch("warehouse.get_indexed_ids", return_value=set()), \
-         patch("warehouse._call_embed", side_effect=RuntimeError("API down")), \
+         patch("warehouse._call_embed", side_effect=RuntimeError("Cannot reach embedding service at http://localhost:8000")), \
          patch("warehouse._get_es", return_value=mock_es):
-        warehouse.cmd_add(MagicMock(json_file=None))
-    assert "Errors: 1" in capsys.readouterr().out
+        with pytest.raises(SystemExit):
+            warehouse.cmd_add(MagicMock(json_file=None))
+    err = capsys.readouterr().err
+    assert "embed failed" in err
+    assert "A004" in err
     mock_es.index.assert_not_called()
