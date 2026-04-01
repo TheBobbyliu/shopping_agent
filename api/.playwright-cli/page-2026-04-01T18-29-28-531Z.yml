@@ -1,0 +1,38 @@
+- generic [ref=e1]:
+  - main [ref=e2]:
+    - complementary [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e17]: V
+          - generic [ref=e18]: Verdure
+        - button "New chat" [active] [ref=e19] [cursor=pointer]:
+          - img [ref=e20]
+          - text: New chat
+      - generic [ref=e122] [cursor=pointer]:
+        - generic [ref=e124]: Show me a comfortable chair
+        - button "Delete" [ref=e125]: ×
+      - paragraph [ref=e26]: bge-m3 · ES · LLM
+    - generic [ref=e236]:
+      - generic [ref=e238]:
+        - generic [ref=e240]: V
+        - generic [ref=e241]: New conversation
+      - generic [ref=e243]:
+        - generic [ref=e246]: V
+        - generic [ref=e247]:
+          - heading "What are you looking for?" [level=2] [ref=e248]
+          - paragraph [ref=e249]: Describe a product or upload an image to get started
+        - generic [ref=e250]:
+          - button "Show me a comfortable chair" [ref=e251] [cursor=pointer]
+          - button "Red leather sofa under $500" [ref=e252] [cursor=pointer]
+          - button "Running shoes for men" [ref=e253] [cursor=pointer]
+          - button "Modern kitchen accessories" [ref=e254] [cursor=pointer]
+      - generic [ref=e256]:
+        - generic [ref=e257]:
+          - img [ref=e259] [cursor=pointer]
+          - textbox "Ask about products or upload an image…" [ref=e261]
+          - button [disabled] [ref=e262]:
+            - img [ref=e263]
+        - paragraph [ref=e265]: Enter to send · Shift+Enter for newline
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]:
+    - img [ref=e64]
+  - alert [ref=e12]

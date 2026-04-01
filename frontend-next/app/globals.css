@@ -1,15 +1,82 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,400;1,9..144,300;1,9..144,400&family=Outfit:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
-  body { @apply bg-gray-50 text-gray-900; }
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html {
+    font-family: 'Outfit', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  body {
+    background-color: #0b0f0d;
+    color: #e8ede9;
+    height: 100dvh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* Refined scrollbar */
+  ::-webkit-scrollbar { width: 3px; height: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a3d30; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #4d6655; }
+
+  /* Selection */
+  ::selection { background: rgba(110, 231, 160, 0.2); color: #e8ede9; }
 }
 
-.bubble-user { border-radius: 18px 18px 4px 18px; }
-.bubble-bot  { border-radius: 18px 18px 18px 4px; }
+/* Grain overlay for atmospheric depth */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='1'/%3E%3C/svg%3E");
+  opacity: 0.028;
+  pointer-events: none;
+  z-index: 9999;
+  mix-blend-mode: overlay;
+}
 
-.typing-dot { animation: blink 1.2s infinite; }
+/* Typing dots */
+.typing-dot { animation: blink 1.4s ease-in-out infinite; }
 .typing-dot:nth-child(2) { animation-delay: .2s; }
 .typing-dot:nth-child(3) { animation-delay: .4s; }
-@keyframes blink { 0%,80%,100%{opacity:.2} 40%{opacity:1} }
+@keyframes blink { 0%,80%,100%{opacity:.12} 40%{opacity:1} }
+
+/* Prose reset for ReactMarkdown inside assistant messages */
+.prose-verdure p          { margin-bottom: 0.6em; line-height: 1.7; }
+.prose-verdure p:last-child { margin-bottom: 0; }
+/* ul/li layout is handled entirely by the React MD_COMPONENTS (flex + custom – span).
+   No ::before dash here — that would cause a double dash. */
+.prose-verdure ul         { list-style: none; padding: 0; margin-bottom: 0.6em; }
+.prose-verdure ul li      { margin-bottom: 0.25em; }
+.prose-verdure ol         { padding-left: 1.4em; margin-bottom: 0.6em; }
+.prose-verdure ol li      { margin-bottom: 0.25em; }
+.prose-verdure strong     { font-weight: 600; color: #e8ede9; }
+.prose-verdure em         { font-style: italic; color: #a8c4ad; }
+.prose-verdure code       { font-family: 'JetBrains Mono', monospace; font-size: 0.8em;
+                             background: rgba(110,231,160,0.07); border: 1px solid rgba(110,231,160,0.12);
+                             padding: 0.15em 0.4em; border-radius: 4px; color: #a3e8b8; }
+.prose-verdure pre        { background: #0b0f0d; border: 1px solid #1f2d24;
+                             border-radius: 8px; padding: 1em; overflow-x: auto;
+                             margin-bottom: 0.75em; }
+.prose-verdure pre code   { background: none; border: none; padding: 0; font-size: 0.78em; color: #8faa96; }
+.prose-verdure h1, .prose-verdure h2, .prose-verdure h3 {
+  font-family: 'Fraunces', serif;
+  color: #e8ede9;
+  margin-top: 0.75em;
+  margin-bottom: 0.3em;
+}
+.prose-verdure h1         { font-size: 1.15em; font-weight: 400; }
+.prose-verdure h2         { font-size: 1.05em; font-weight: 400; }
+.prose-verdure h3         { font-size: 0.95em; font-weight: 500; }
+.prose-verdure a          { color: #6ee7a0; text-decoration: none; border-bottom: 1px solid rgba(110,231,160,0.3); }
+.prose-verdure a:hover    { border-bottom-color: #6ee7a0; }

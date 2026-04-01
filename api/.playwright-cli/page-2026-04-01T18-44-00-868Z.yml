@@ -1,0 +1,179 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - complementary [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e17]: V
+          - generic [ref=e18]: Verdure
+        - button "New chat" [ref=e19] [cursor=pointer]:
+          - img [ref=e20]
+          - text: New chat
+      - generic [ref=e23]:
+        - generic [ref=e281] [cursor=pointer]:
+          - generic [ref=e283]: Image search
+          - button "Delete" [ref=e284]: ×
+        - generic [ref=e122] [cursor=pointer]:
+          - generic [ref=e124]: Show me a comfortable chair
+          - button "Delete" [ref=e125]: ×
+      - paragraph [ref=e26]: bge-m3 · ES · LLM
+    - generic [ref=e437]:
+      - generic [ref=e438]:
+        - generic [ref=e439]:
+          - generic [ref=e441]: V
+          - generic [ref=e442]: (image search)
+        - generic [ref=e443]: "61701196"
+      - generic [ref=e445]:
+        - generic [ref=e448]: (image search)
+        - generic [ref=e449]:
+          - generic [ref=e451]: V
+          - generic [ref=e452]:
+            - generic [ref=e453]:
+              - paragraph [ref=e454]: "Here are some products that are visually similar to the image you provided:"
+              - list [ref=e455]:
+                - listitem [ref=e456]:
+                  - generic [ref=e457]: –
+                  - generic [ref=e458]:
+                    - paragraph [ref=e459]:
+                      - strong [ref=e460]:
+                        - link "2L Lifestyle Granville Drop-Leaf Kitchen Cart" [ref=e461] [cursor=pointer]:
+                          - /url: https://amazon.com/dp/B07DMJRQQ9
+                    - list [ref=e462]:
+                      - listitem [ref=e463]:
+                        - generic [ref=e464]: –
+                        - generic [ref=e465]:
+                          - strong [ref=e466]: "Category:"
+                          - text: Furniture
+                      - listitem [ref=e467]:
+                        - generic [ref=e468]: –
+                        - generic [ref=e469]:
+                          - strong [ref=e470]: "Color:"
+                          - text: Natural
+                      - listitem [ref=e471]:
+                        - generic [ref=e472]: –
+                        - generic [ref=e473]:
+                          - strong [ref=e474]: "Material:"
+                          - text: Wood
+                      - listitem [ref=e475]:
+                        - generic [ref=e476]: –
+                        - generic [ref=e477]:
+                          - strong [ref=e478]: "Key Features:"
+                          - text: This kitchen cart features two drop-leaf side panels, a pull-out drawer, an open shelf, and a storage cabinet. It's made of quality solid wood legs and MDF veneer, providing both functionality and style.
+                - listitem [ref=e479]:
+                  - generic [ref=e480]: –
+                  - generic [ref=e481]:
+                    - paragraph [ref=e482]:
+                      - strong [ref=e483]:
+                        - link "AmazonBasics Classic Solid Rubber Wood Rolling Kitchen Cart" [ref=e484] [cursor=pointer]:
+                          - /url: https://amazon.com/dp/B07MND862G
+                    - list [ref=e485]:
+                      - listitem [ref=e486]:
+                        - generic [ref=e487]: –
+                        - generic [ref=e488]:
+                          - strong [ref=e489]: "Category:"
+                          - text: Home Furniture and Decor
+                      - listitem [ref=e490]:
+                        - generic [ref=e491]: –
+                        - generic [ref=e492]:
+                          - strong [ref=e493]: "Color:"
+                          - text: Rustic White
+                      - listitem [ref=e494]:
+                        - generic [ref=e495]: –
+                        - generic [ref=e496]:
+                          - strong [ref=e497]: "Material:"
+                          - text: Wood
+                      - listitem [ref=e498]:
+                        - generic [ref=e499]: –
+                        - generic [ref=e500]:
+                          - strong [ref=e501]: "Key Features:"
+                          - text: This cart includes a pull-out drawer, towel rack, and an enclosed cabinet with a removable shelf. Its durable wood composite construction and solid wood countertop make it a practical addition to any kitchen.
+                - listitem [ref=e502]:
+                  - generic [ref=e503]: –
+                  - generic [ref=e504]:
+                    - paragraph [ref=e505]:
+                      - strong [ref=e506]:
+                        - link "Ravenna Home 1-Drawer Kitchen Cart" [ref=e507] [cursor=pointer]:
+                          - /url: https://amazon.com/dp/B07MSXWTX2
+                    - list [ref=e508]:
+                      - listitem [ref=e509]:
+                        - generic [ref=e510]: –
+                        - generic [ref=e511]:
+                          - strong [ref=e512]: "Category:"
+                          - text: Home Furniture and Decor
+                      - listitem [ref=e513]:
+                        - generic [ref=e514]: –
+                        - generic [ref=e515]:
+                          - strong [ref=e516]: "Color:"
+                          - text: White with Wood Top
+                      - listitem [ref=e517]:
+                        - generic [ref=e518]: –
+                        - generic [ref=e519]:
+                          - strong [ref=e520]: "Key Features:"
+                          - text: This kitchen cart features a wood top, one drawer, a two-door cabinet, and an open shelf. It's designed for mobility with casters and offers ample storage space.
+                - listitem [ref=e521]:
+                  - generic [ref=e522]: –
+                  - generic [ref=e523]:
+                    - paragraph [ref=e524]:
+                      - strong [ref=e525]:
+                        - link "Amazon Brand – Stone & Beam Farmhouse Wall Mounted Cabinet" [ref=e526] [cursor=pointer]:
+                          - /url: https://amazon.com/dp/B07B8FHTJ4
+                    - list [ref=e527]:
+                      - listitem [ref=e528]:
+                        - generic [ref=e529]: –
+                        - generic [ref=e530]:
+                          - strong [ref=e531]: "Category:"
+                          - text: Cabinet
+                      - listitem [ref=e532]:
+                        - generic [ref=e533]: –
+                        - generic [ref=e534]:
+                          - strong [ref=e535]: "Color:"
+                          - text: Natural Wood
+                      - listitem [ref=e536]:
+                        - generic [ref=e537]: –
+                        - generic [ref=e538]:
+                          - strong [ref=e539]: "Material:"
+                          - text: Wood
+                      - listitem [ref=e540]:
+                        - generic [ref=e541]: –
+                        - generic [ref=e542]:
+                          - strong [ref=e543]: "Key Features:"
+                          - text: This wall-mounted cabinet provides vintage-style storage for spices or mail, featuring a distressed finish for an antique charm. It's compact and perfect for small spaces.
+              - paragraph [ref=e544]: These options should give you a good variety of kitchen carts and cabinets that align with the style of the image you shared. If you have any specific preferences or need further assistance, feel free to ask!
+            - generic [ref=e545]:
+              - generic [ref=e546] [cursor=pointer]:
+                - img "product" [ref=e547]
+                - generic [ref=e548]:
+                  - paragraph [ref=e549]: B07DMJRQQ9
+                  - button "Tell me more →" [ref=e550]:
+                    - text: Tell me more
+                    - generic [ref=e551]: →
+              - generic [ref=e552] [cursor=pointer]:
+                - img "product" [ref=e553]
+                - generic [ref=e554]:
+                  - paragraph [ref=e555]: B07MND862G
+                  - button "Tell me more →" [ref=e556]:
+                    - text: Tell me more
+                    - generic [ref=e557]: →
+              - generic [ref=e558] [cursor=pointer]:
+                - img "product" [ref=e559]
+                - generic [ref=e560]:
+                  - paragraph [ref=e561]: B07MSXWTX2
+                  - button "Tell me more →" [ref=e562]:
+                    - text: Tell me more
+                    - generic [ref=e563]: →
+              - generic [ref=e564] [cursor=pointer]:
+                - img "product" [ref=e565]
+                - generic [ref=e566]:
+                  - paragraph [ref=e567]: B07B8FHTJ4
+                  - button "Tell me more →" [ref=e568]:
+                    - text: Tell me more
+                    - generic [ref=e569]: →
+      - generic [ref=e571]:
+        - generic [ref=e572]:
+          - img [ref=e574] [cursor=pointer]
+          - textbox "Ask about products or upload an image…" [ref=e576]
+          - button [disabled] [ref=e577]:
+            - img [ref=e578]
+        - paragraph [ref=e580]: Enter to send · Shift+Enter for newline
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]:
+    - img [ref=e64]
+  - alert [ref=e12]

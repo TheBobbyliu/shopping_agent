@@ -1,256 +1,272 @@
 "use client";
 
 import { useState, useRef, useEffect, useCallback } from "react";
-import { sendChat, productImageUrl, getProduct } from "@/lib/api";
+import { streamChat } from "@/lib/api";
+import ChatMessage, { parseItemIds } from "@/components/ChatMessage";
+import ChatInput from "@/components/ChatInput";
+import StatusIndicator from "@/components/StatusIndicator";
+import { saveSession } from "@/components/ChatSidebar";
 
-interface Message {
+export interface Message {
   role: "user" | "assistant";
   content: string;
   imagePreview?: string;
-  products?: string[];   // item_ids parsed from reply
+  products?: string[];
   toolCalls?: { tool: string }[];
+  streaming?: boolean;
 }
 
-const ITEM_ID_RE = /\b(B[A-Z0-9]{9})\b/g;
+const SUGGESTIONS = [
+  "Show me a comfortable chair",
+  "Red leather sofa under $500",
+  "Running shoes for men",
+  "Modern kitchen accessories",
+];
 
-function parseItemIds(text: string): string[] {
-  return [...new Set([...text.matchAll(ITEM_ID_RE)].map((m) => m[1]))];
+interface ChatWindowProps {
+  sessionId?: string;
+  onSessionCreated?: (id: string) => void;
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function formatReply(text: string): string {
-  return escapeHtml(text)
-    .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")
-    .replace(/\*(.+?)\*/g, "<em>$1</em>")
-    .replace(/`(.+?)`/g, '<code class="bg-gray-100 px-1 rounded text-xs font-mono">$1</code>')
-    .replace(/\n\n/g, "</p><p class='mt-2'>")
-    .replace(/\n/g, "<br/>");
-}
-
-function ProductCard({ itemId, onAsk }: { itemId: string; onAsk: (id: string) => void }) {
-  const imgUrl = productImageUrl(itemId);
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={imgUrl}
-        alt="product"
-        className="w-full h-28 object-contain bg-gray-50 p-2"
-        onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-      />
-      <div className="px-3 py-2">
-        <p className="text-xs text-gray-400 font-mono truncate">{itemId}</p>
-        <button
-          onClick={() => onAsk(itemId)}
-          className="mt-1 text-xs text-indigo-600 hover:underline"
-        >
-          Tell me more →
-        </button>
-      </div>
-    </div>
-  );
-}
-
-export default function ChatWindow() {
-  const [messages, setMessages]     = useState<Message[]>([]);
+export default function ChatWindow({ sessionId: initialSessionId, onSessionCreated }: ChatWindowProps) {
+  const [messages, setMessages]     = useState<Message[]>(() => {
+    // Restore messages for an existing session from localStorage (Bug 2)
+    if (!initialSessionId || typeof window === "undefined") return [];
+    try {
+      const stored = localStorage.getItem(`messages_${initialSessionId}`);
+      return stored ? JSON.parse(stored) : [];
+    } catch { return []; }
+  });
   const [input, setInput]           = useState("");
   const [loading, setLoading]       = useState(false);
-  const [sessionId, setSessionId]   = useState<string | undefined>();
-  const [pendingImg, setPendingImg] = useState<string | null>(null); // base64
-  const fileRef    = useRef<HTMLInputElement>(null);
-  const bottomRef  = useRef<HTMLDivElement>(null);
-  const textRef    = useRef<HTMLTextAreaElement>(null);
+  const [status, setStatus]         = useState("");
+  const [sessionId, setSessionId]   = useState<string | undefined>(initialSessionId);
+  const [pendingImg, setPendingImg] = useState<string | null>(null);
+  const bottomRef    = useRef<HTMLDivElement>(null);
+  const abortRef     = useRef<AbortController | null>(null);
+  // Ref tracks the latest sessionId so effects can read it without stale closures
+  const sessionIdRef = useRef<string | undefined>(initialSessionId);
+
+  // Note: session switching is handled by the `key` prop on this component in page.tsx,
+  // which causes a full remount — no effect needed here for external session changes.
+
+  // Keep sessionIdRef in sync — must be declared BEFORE the messages-save effect
+  // so React runs it first when both sessionId and messages change in the same render.
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  // Persist messages to localStorage whenever streaming finishes.
+  // Keep user image previews so reopening a chat shows the original upload.
+  // Using an effect (not inside the setMessages updater) because the updater
+  // runs during the React render cycle, not synchronously on setState call.
+  useEffect(() => {
+    const sid = sessionIdRef.current;
+    if (!sid || messages.length === 0) return;
+    if (messages.some((m) => m.streaming)) return; // still streaming — wait
+    try {
+      localStorage.setItem(`messages_${sid}`, JSON.stringify(messages));
+    } catch { /* ignore quota errors */ }
+  }, [messages]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
-
-  const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const data = (ev.target?.result as string).split(",")[1];
-      setPendingImg(data);
-    };
-    reader.readAsDataURL(file);
-  };
+  }, [messages, status]);
 
   const send = useCallback(async (text?: string) => {
     const msg = (text ?? input).trim();
     if (!msg && !pendingImg) return;
+    if (loading) return;
 
     const userMsg: Message = {
-      role: "user",
-      content: msg || "🖼 (image search)",
+      role:         "user",
+      content:      msg || "(image search)",
       imagePreview: pendingImg ? `data:image/jpeg;base64,${pendingImg}` : undefined,
     };
     setMessages((prev) => [...prev, userMsg]);
     setInput("");
+    const imgToSend = pendingImg;
     setPendingImg(null);
-    if (fileRef.current) fileRef.current.value = "";
     setLoading(true);
+    setStatus("Connecting...");
 
-    try {
-      const res = await sendChat({
-        message:    msg || "What product is in this image? Search for similar ones.",
-        image_b64:  pendingImg ?? undefined,
+    // Note: we do NOT add a placeholder streaming message here.
+    // The StatusIndicator shows "Connecting..." while we wait for the first token.
+    // The streaming message is created on the first onToken call (Bug 4 fix).
+
+    abortRef.current = streamChat(
+      {
+        message:    msg || "Find products similar to this image.",
+        image_b64:  imgToSend ?? undefined,
         session_id: sessionId,
-      });
-      if (!sessionId) setSessionId(res.session_id);
+      },
+      {
+        onStatus: (text) => setStatus(text),
+        onToken:  (token) => {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant" && last.streaming) {
+              // Append to existing streaming message
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...last, content: last.content + token };
+              return updated;
+            }
+            // First token — create the streaming assistant message
+            return [...prev, { role: "assistant", content: token, streaming: true }];
+          });
+        },
+        onDone: (res) => {
+          const newSessionId = res.session_id;
 
-      const botMsg: Message = {
-        role:      "assistant",
-        content:   res.reply,
-        products:  parseItemIds(res.reply),
-        toolCalls: res.tool_calls,
-      };
-      setMessages((prev) => [...prev, botMsg]);
-    } catch (err) {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: `Error: ${(err as Error).message}` },
-      ]);
-    } finally {
-      setLoading(false);
-    }
-  }, [input, pendingImg, sessionId]);
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last?.role === "assistant" && last.streaming) {
+              const finalContent = res.reply || last.content;
+              updated[updated.length - 1] = {
+                ...last,
+                content:   finalContent,
+                products:  parseItemIds(finalContent),
+                toolCalls: res.tool_calls,
+                streaming: false,
+              };
+            } else {
+              // No streaming tokens received — add final message directly
+              const finalContent = res.reply;
+              if (finalContent) {
+                updated.push({
+                  role:      "assistant",
+                  content:   finalContent,
+                  products:  parseItemIds(finalContent),
+                  toolCalls: res.tool_calls,
+                  streaming: false,
+                });
+              }
+            }
+            return updated;
+            // localStorage persistence is handled by the useEffect([messages]) above
+          });
 
-  const askAbout = (itemId: string) => send(`Tell me more about product ${itemId}`);
+          // Only save session metadata and notify parent on first message (Bug 5)
+          if (!sessionId) {
+            setSessionId(newSessionId);
+            onSessionCreated?.(newSessionId);
+            const title = msg.slice(0, 60) || "Image search";
+            saveSession({ session_id: newSessionId, title, created_at: Date.now() });
+          }
+          setLoading(false);
+          setStatus("");
+        },
+        onError: (detail) => {
+          setMessages((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last?.role === "assistant" && last.streaming) {
+              updated[updated.length - 1] = {
+                ...last,
+                content:   detail || "Something went wrong. Please try again.",
+                streaming: false,
+              };
+            } else {
+              updated.push({ role: "assistant", content: detail || "Something went wrong." });
+            }
+            return updated;
+          });
+          setLoading(false);
+          setStatus("");
+        },
+      }
+    );
+  }, [input, pendingImg, sessionId, loading, onSessionCreated]);
+
+  const askAbout = useCallback((itemId: string) => send(`Tell me more about product ${itemId}`), [send]);
 
   return (
-    <div className="flex flex-col h-full max-w-3xl mx-auto w-full">
+    <div className="flex flex-col h-full w-full bg-vd-bg">
       {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-4 py-3 flex items-center gap-3 shadow-sm">
-        <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white text-sm font-bold">S</div>
-        <div>
-          <h1 className="font-semibold text-sm">Shopping Assistant</h1>
-          <p className="text-xs text-gray-400">bge-visualized-m3 · Elasticsearch · LLM</p>
+      <header className="border-b border-vd-border px-5 py-3.5 flex items-center gap-3 flex-shrink-0 bg-vd-panel/50">
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-vd-surface border border-vd-border flex items-center justify-center flex-shrink-0">
+            <span className="font-display italic text-xs text-vd-accent font-light leading-none">V</span>
+          </div>
+          <span className="font-display italic text-vd-fg text-sm font-light tracking-wide">
+            {messages.length > 0
+              ? messages.find((m) => m.role === "user")?.content.slice(0, 40) || "Conversation"
+              : "New conversation"}
+          </span>
         </div>
         {sessionId && (
-          <span className="ml-auto text-xs text-gray-300 font-mono hidden sm:block truncate max-w-xs">
-            session: {sessionId.slice(0, 8)}…
+          <span className="text-[10px] text-vd-fg-3 font-mono tracking-widest hidden sm:block">
+            {sessionId.slice(0, 8)}
           </span>
         )}
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
-        {messages.length === 0 && (
-          <div className="flex gap-3">
-            <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold flex-shrink-0 mt-1">S</div>
-            <div className="bubble-bot bg-white border border-gray-200 px-4 py-3 text-sm text-gray-700 shadow-sm max-w-lg">
-              Hi! I can find products by description or image.{" "}
-              {["Show me a comfortable chair", "Red leather sofa", "Upload an image"].map((s) => (
-                <button key={s} onClick={() => send(s)} className="text-indigo-600 hover:underline mx-1">
+      <div className="flex-1 overflow-y-auto">
+        {messages.length === 0 ? (
+          /* Welcome / centered search state */
+          <div className="flex flex-col items-center justify-center h-full px-6 pb-16">
+            <div className="relative mb-6 animate-fade-up">
+              <div className="w-16 h-16 rounded-2xl bg-vd-surface border border-vd-border flex items-center justify-center shadow-card">
+                <span className="font-display italic text-2xl text-vd-accent font-light tracking-tight">V</span>
+              </div>
+              <div className="absolute inset-0 rounded-2xl shadow-accent-glow pointer-events-none" />
+            </div>
+
+            <div className="text-center mb-8 animate-fade-up" style={{ animationDelay: "80ms" }}>
+              <h2 className="font-display italic text-vd-fg text-2xl font-light tracking-wide mb-2">
+                What are you looking for?
+              </h2>
+              <p className="text-vd-fg-3 text-sm font-light">
+                Describe a product or upload an image to get started
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2 justify-center max-w-md animate-fade-up" style={{ animationDelay: "160ms" }}>
+              {SUGGESTIONS.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => send(s)}
+                  className="px-4 py-2 rounded-full bg-vd-surface border border-vd-border text-vd-fg-2 text-sm font-light hover:border-vd-accent/30 hover:text-vd-fg hover:bg-vd-hover transition-all duration-200 tracking-wide"
+                >
                   {s}
                 </button>
               ))}
             </div>
           </div>
-        )}
+        ) : (
+          <div className="max-w-3xl mx-auto w-full px-5 py-7 space-y-7">
+            {messages.map((m, i) => (
+              <ChatMessage key={i} message={m} onAsk={askAbout} />
+            ))}
 
-        {messages.map((m, i) => (
-          <div key={i} className={`flex gap-3 ${m.role === "user" ? "justify-end" : ""}`}>
-            {m.role === "assistant" && (
-              <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold flex-shrink-0 mt-1">S</div>
-            )}
-            <div className="max-w-lg">
-              {m.role === "user" ? (
-                <div className="bubble-user bg-indigo-600 text-white px-4 py-2 text-sm shadow-sm">
-                  {m.imagePreview && (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={m.imagePreview} alt="upload" className="max-h-28 rounded-lg mb-2 block" />
-                  )}
-                  {m.content}
+            {/* Live status indicator */}
+            {loading && status && (
+              <div className="flex gap-3">
+                <div className="w-6 h-6 rounded-lg bg-vd-surface border border-vd-border flex items-center justify-center flex-shrink-0 mt-0.5">
+                  <span className="font-display italic text-xs text-vd-accent font-light leading-none">V</span>
                 </div>
-              ) : (
-                <>
-                  <div className="bubble-bot bg-white border border-gray-200 px-4 py-3 text-sm text-gray-700 shadow-sm">
-                    <p dangerouslySetInnerHTML={{ __html: "<p>" + formatReply(m.content) + "</p>" }} />
-                    {m.toolCalls && m.toolCalls.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {m.toolCalls.map((tc, j) => (
-                          <span key={j} className="bg-gray-100 text-gray-500 px-2 py-0.5 rounded text-xs">{tc.tool}</span>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                  {m.products && m.products.length > 0 && (
-                    <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2">
-                      {m.products.map((id) => (
-                        <ProductCard key={id} itemId={id} onAsk={askAbout} />
-                      ))}
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        ))}
+                <StatusIndicator text={status} />
+              </div>
+            )}
 
-        {loading && (
-          <div className="flex gap-3">
-            <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-bold flex-shrink-0 mt-1">S</div>
-            <div className="bubble-bot bg-white border border-gray-200 px-4 py-3 shadow-sm flex gap-1 items-center">
-              <span className="typing-dot w-2 h-2 bg-gray-400 rounded-full" />
-              <span className="typing-dot w-2 h-2 bg-gray-400 rounded-full" />
-              <span className="typing-dot w-2 h-2 bg-gray-400 rounded-full" />
-            </div>
+            <div ref={bottomRef} />
           </div>
         )}
-        <div ref={bottomRef} />
       </div>
 
-      {/* Image preview */}
-      {pendingImg && (
-        <div className="bg-white border-t border-gray-100 px-4 py-2 flex items-center gap-3">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={`data:image/jpeg;base64,${pendingImg}`} alt="preview" className="h-14 w-14 object-cover rounded-lg border" />
-          <span className="text-xs text-gray-500 flex-1">Image ready</span>
-          <button onClick={() => { setPendingImg(null); if (fileRef.current) fileRef.current.value = ""; }} className="text-xs text-red-400 hover:text-red-600">✕</button>
-        </div>
-      )}
-
-      {/* Input bar */}
-      <div className="bg-white border-t border-gray-200 px-4 py-3">
-        <div className="flex gap-2 items-end">
-          <label className="cursor-pointer w-9 h-9 rounded-lg border border-gray-300 flex items-center justify-center hover:bg-gray-50 text-gray-400 flex-shrink-0">
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
-          </label>
-
-          <textarea
-            ref={textRef}
-            rows={1}
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
-            placeholder="Ask about products or upload an image…"
-            className="flex-1 resize-none border border-gray-300 rounded-xl px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
-            style={{ maxHeight: 120 }}
-          />
-
-          <button
-            onClick={() => send()}
-            disabled={loading || (!input.trim() && !pendingImg)}
-            className="w-9 h-9 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed flex-shrink-0"
-          >
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
-            </svg>
-          </button>
-        </div>
+      {/* Separator */}
+      <div className="border-t border-vd-border flex-shrink-0">
+        <ChatInput
+          value={input}
+          onChange={setInput}
+          onSend={() => send()}
+          onImageSelect={setPendingImg}
+          disabled={loading}
+          pendingImg={pendingImg}
+          onClearImg={() => setPendingImg(null)}
+        />
       </div>
     </div>
   );

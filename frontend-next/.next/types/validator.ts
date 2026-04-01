@@ -65,6 +65,15 @@ type RouteHandlerConfig<Route extends AppRouteHandlerRoutes = AppRouteHandlerRou
   type __Unused = __Check
 }
 
+// Validate ../../app/api/chat/stream/route.ts
+{
+  type __IsExpected<Specific extends RouteHandlerConfig<"/api/chat/stream">> = Specific
+  const handler = {} as typeof import("../../app/api/chat/stream/route.js")
+  type __Check = __IsExpected<typeof handler>
+  // @ts-ignore
+  type __Unused = __Check
+}
+
 
 
 

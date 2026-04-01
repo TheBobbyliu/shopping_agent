@@ -1,0 +1,39 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - complementary [ref=e13]:
+      - generic [ref=e14]:
+        - generic [ref=e15]:
+          - generic [ref=e17]: V
+          - generic [ref=e18]: Verdure
+        - button "New chat" [ref=e19] [cursor=pointer]:
+          - img [ref=e20]
+          - text: New chat
+      - generic [ref=e23]:
+        - generic [ref=e281] [cursor=pointer]:
+          - generic [ref=e283]: Image search
+          - button "Delete" [ref=e284]: ×
+        - generic [ref=e122] [cursor=pointer]:
+          - generic [ref=e124]: Show me a comfortable chair
+          - button "Delete" [ref=e125]: ×
+      - paragraph [ref=e26]: bge-m3 · ES · LLM
+    - generic [ref=e581]:
+      - generic [ref=e583]:
+        - generic [ref=e585]: V
+        - generic [ref=e586]: (image search)
+      - generic [ref=e588]:
+        - generic [ref=e616]:
+          - img "upload" [ref=e617]
+          - generic [ref=e618]: (image search)
+        - generic [ref=e592]:
+          - generic [ref=e620]: V
+          - generic [ref=e625]: Searching for products...
+      - generic [ref=e601]:
+        - generic [ref=e602]:
+          - img [ref=e604] [cursor=pointer]
+          - textbox "Ask about products or upload an image…" [disabled] [ref=e606]
+          - button [disabled] [ref=e607]:
+            - img [ref=e608]
+        - paragraph [ref=e610]: Enter to send · Shift+Enter for newline
+  - button "Open Next.js Dev Tools" [ref=e63] [cursor=pointer]:
+    - img [ref=e64]
+  - alert [ref=e12]
