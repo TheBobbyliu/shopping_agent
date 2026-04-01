@@ -139,3 +139,54 @@ def test_check_count_returns_n_items(capsys):
         warehouse.cmd_check(args)
     data = json.loads(capsys.readouterr().out)
     assert len(data) == 1
+
+
+# ---------------------------------------------------------------------------
+# delete — unit tests
+# ---------------------------------------------------------------------------
+
+def test_delete_removes_existing_item(capsys):
+    import warehouse
+    mock_es = MagicMock()
+    mock_es.indices = MagicMock()
+    with patch("warehouse._load_json", return_value=[{"item_id": "A001"}]), \
+         patch("warehouse.get_indexed_ids", return_value={"A001"}), \
+         patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_delete(MagicMock(json_file=None))
+    mock_es.delete.assert_called_once_with(index=warehouse.ES_INDEX, id="A001")
+    out = capsys.readouterr().out
+    assert "Deleted: 1" in out
+    assert "Not found: 0" in out
+
+
+def test_delete_warns_on_missing_item(capsys):
+    import warehouse
+    mock_es = MagicMock()
+    mock_es.indices = MagicMock()
+    with patch("warehouse._load_json", return_value=[{"item_id": "ZZZZ"}]), \
+         patch("warehouse.get_indexed_ids", return_value=set()), \
+         patch("warehouse._get_es", return_value=mock_es):
+        warehouse.cmd_delete(MagicMock(json_file=None))
+    err = capsys.readouterr().err
+    assert "[warn]" in err
+    assert "ZZZZ" in err
+    mock_es.delete.assert_not_called()
+
+
+def test_delete_aborts_on_duplicate_input(capsys):
+    import warehouse
+    with patch("warehouse._load_json", return_value=[
+        {"item_id": "A001"},
+        {"item_id": "A001"},
+    ]):
+        with pytest.raises(SystemExit):
+            warehouse.cmd_delete(MagicMock(json_file=None))
+    assert "Duplicate" in capsys.readouterr().err
+
+
+def test_delete_aborts_on_missing_item_id_field(capsys):
+    import warehouse
+    with patch("warehouse._load_json", return_value=[{"name": "no item_id here"}]):
+        with pytest.raises(SystemExit):
+            warehouse.cmd_delete(MagicMock(json_file=None))
+    assert "item_id" in capsys.readouterr().err
