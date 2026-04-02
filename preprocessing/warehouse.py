@@ -177,6 +177,7 @@ def cmd_add(args):
         except Exception as e:
             print(file=sys.stdout)  # newline after the "embedding..." line
             print(f"[error] embed failed for {iid}: {e}", file=sys.stderr)
+            es.indices.refresh(index=ES_INDEX)
             sys.exit(1)
         doc = {**item, **vectors}
         try:

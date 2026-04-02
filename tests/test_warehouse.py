@@ -267,6 +267,7 @@ def test_add_exits_on_embed_failure(capsys):
     import warehouse
     items = [{"item_id": "A004", "description": "desc", "image_path": "img.jpg"}]
     mock_es = MagicMock()
+    mock_es.indices = MagicMock()
     with patch("warehouse._load_json", return_value=items), \
          patch("warehouse.get_indexed_ids", return_value=set()), \
          patch("warehouse._call_embed", side_effect=RuntimeError("Cannot reach embedding service at http://localhost:8000")), \
@@ -277,3 +278,4 @@ def test_add_exits_on_embed_failure(capsys):
     assert "embed failed" in err
     assert "A004" in err
     mock_es.index.assert_not_called()
+    mock_es.indices.refresh.assert_called_once_with(index=warehouse.ES_INDEX)
