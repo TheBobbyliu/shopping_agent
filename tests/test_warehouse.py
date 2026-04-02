@@ -279,3 +279,187 @@ def test_add_exits_on_embed_failure(capsys):
     assert "A004" in err
     mock_es.index.assert_not_called()
     mock_es.indices.refresh.assert_called_once_with(index=warehouse.ES_INDEX)
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — require ES (products_test index) + API server running
+# ---------------------------------------------------------------------------
+
+_INTEG_ITEMS = [
+    {
+        "item_id": "WH_TEST_001",
+        "description": "A red leather sofa for living rooms",
+        "image_path": str(
+            Path(__file__).parent.parent
+            / "data/abo-images-small/images/small/00/00000529.jpg"
+        ),
+        "name": "Red Leather Sofa",
+        "brand": "TestBrand",
+        "category": "FURNITURE",
+    },
+    {
+        "item_id": "WH_TEST_002",
+        "description": "A stainless steel kitchen knife",
+        "image_path": str(
+            Path(__file__).parent.parent
+            / "data/abo-images-small/images/small/00/00003a93.jpg"
+        ),
+        "name": "Kitchen Knife",
+        "brand": "TestBrand",
+    },
+]
+
+
+@pytest.fixture()
+def cleanup_integ_items():
+    """Delete the WH_TEST_* items before and after each integration test."""
+    from elasticsearch import Elasticsearch
+
+    es = Elasticsearch(os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
+    index = os.environ.get("ES_INDEX", "products_test")
+
+    def _delete_all():
+        for item in _INTEG_ITEMS:
+            try:
+                es.delete(index=index, id=item["item_id"])
+            except Exception:
+                pass
+        try:
+            es.indices.refresh(index=index)
+        except Exception:
+            pass
+
+    _delete_all()
+    yield
+    _delete_all()
+
+
+@pytest.mark.api
+def test_integ_add_items(cleanup_integ_items, tmp_path, capsys):
+    """add two items → verify they appear in ES with 1024-dim vectors."""
+    import warehouse
+    from elasticsearch import Elasticsearch
+
+    json_file = tmp_path / "items.json"
+    json_file.write_text(json.dumps(_INTEG_ITEMS))
+
+    warehouse.cmd_add(MagicMock(json_file=str(json_file)))
+
+    out = capsys.readouterr().out
+    assert "Added: 2" in out
+    assert "Skipped: 0" in out
+    assert "Errors: 0" in out
+
+    es = Elasticsearch(os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
+    index = os.environ.get("ES_INDEX", "products_test")
+    for item in _INTEG_ITEMS:
+        doc = es.get(index=index, id=item["item_id"])["_source"]
+        assert doc["item_id"] == item["item_id"]
+        assert len(doc.get("description_vector", [])) == 1024
+        assert len(doc.get("image_vector", [])) == 1024
+
+
+@pytest.mark.api
+def test_integ_add_skips_existing(cleanup_integ_items, tmp_path, capsys):
+    """Re-adding an already-indexed item produces a skip line, not an error."""
+    import warehouse
+
+    json_file = tmp_path / "items.json"
+    json_file.write_text(json.dumps(_INTEG_ITEMS[:1]))
+
+    warehouse.cmd_add(MagicMock(json_file=str(json_file)))
+    capsys.readouterr()  # discard first-run output
+
+    warehouse.cmd_add(MagicMock(json_file=str(json_file)))
+    out = capsys.readouterr()
+    assert "[skip]" in out.err
+    assert "Skipped: 1" in out.out
+    assert "Added: 0" in out.out
+
+
+@pytest.mark.api
+def test_integ_delete_items(cleanup_integ_items, tmp_path, capsys):
+    """Delete one existing item and one nonexistent → correct counts + warning."""
+    import warehouse
+    from elasticsearch import Elasticsearch
+
+    add_file = tmp_path / "add.json"
+    add_file.write_text(json.dumps(_INTEG_ITEMS[:1]))
+    warehouse.cmd_add(MagicMock(json_file=str(add_file)))
+    capsys.readouterr()
+
+    del_file = tmp_path / "delete.json"
+    del_file.write_text(json.dumps([
+        {"item_id": _INTEG_ITEMS[0]["item_id"]},
+        {"item_id": "WH_NONEXISTENT_999"},
+    ]))
+    warehouse.cmd_delete(MagicMock(json_file=str(del_file)))
+
+    captured = capsys.readouterr()
+    assert "Deleted: 1" in captured.out
+    assert "Not found: 1" in captured.out
+    assert "[warn]" in captured.err
+
+    es = Elasticsearch(os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
+    index = os.environ.get("ES_INDEX", "products_test")
+    try:
+        es.get(index=index, id=_INTEG_ITEMS[0]["item_id"])
+        assert False, "Item should have been deleted"
+    except Exception:
+        pass  # expected — item is gone
+
+
+@pytest.mark.api
+def test_integ_check_item_id(cleanup_integ_items, tmp_path, capsys):
+    """check --item-id returns full doc with vectors stripped."""
+    import warehouse
+
+    add_file = tmp_path / "add.json"
+    add_file.write_text(json.dumps(_INTEG_ITEMS[:1]))
+    warehouse.cmd_add(MagicMock(json_file=str(add_file)))
+    capsys.readouterr()
+
+    args = MagicMock(item_id=_INTEG_ITEMS[0]["item_id"], group=None, count=None)
+    warehouse.cmd_check(args)
+
+    data = json.loads(capsys.readouterr().out)
+    assert data["item_id"] == _INTEG_ITEMS[0]["item_id"]
+    assert "description_vector" not in data
+    assert "image_vector" not in data
+
+
+@pytest.mark.api
+def test_integ_check_group(cleanup_integ_items, tmp_path, capsys):
+    """check --group filters by category field."""
+    import warehouse
+
+    add_file = tmp_path / "add.json"
+    add_file.write_text(json.dumps(_INTEG_ITEMS))
+    warehouse.cmd_add(MagicMock(json_file=str(add_file)))
+    capsys.readouterr()
+
+    # WH_TEST_001 has category=FURNITURE; WH_TEST_002 has no category
+    args = MagicMock(item_id=None, group="FURNITURE", count=10)
+    warehouse.cmd_check(args)
+
+    data = json.loads(capsys.readouterr().out)
+    item_ids = [d["item_id"] for d in data]
+    assert "WH_TEST_001" in item_ids
+    assert "WH_TEST_002" not in item_ids
+
+
+@pytest.mark.api
+def test_integ_check_count(cleanup_integ_items, tmp_path, capsys):
+    """check --count N returns at most N items."""
+    import warehouse
+
+    add_file = tmp_path / "add.json"
+    add_file.write_text(json.dumps(_INTEG_ITEMS))
+    warehouse.cmd_add(MagicMock(json_file=str(add_file)))
+    capsys.readouterr()
+
+    args = MagicMock(item_id=None, group=None, count=1)
+    warehouse.cmd_check(args)
+
+    data = json.loads(capsys.readouterr().out)
+    assert len(data) == 1
