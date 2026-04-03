@@ -2,6 +2,44 @@
 
 ---
 
+## 2026-04-02 — Warehouse CLI
+
+New `preprocessing/warehouse.py` CLI for operational staff to manage the Elasticsearch product database. Also adds `POST /embed` to the API server so the CLI reuses the already-warm embedding model.
+
+### Commands
+
+| Command | Description |
+|---|---|
+| `python warehouse.py add items.json` | Embed and index new products; skips already-indexed items |
+| `python warehouse.py delete items.json` | Delete products by `item_id`; warns on missing |
+| `python warehouse.py check --item-id ID` | Fetch a single product (vectors stripped) |
+| `python warehouse.py check --group CATEGORY [--count N]` | Fetch N products by category |
+| `python warehouse.py check --count N` | Fetch N products across all categories |
+
+### New / modified files
+
+| File | Change |
+|---|---|
+| `api/main.py` | Added `POST /embed` — exposes warm `_get_embedding_client()` singleton; returns 400 for missing image, 503 if not ready |
+| `preprocessing/warehouse.py` | New CLI entry point; all command logic |
+| `tests/test_warehouse.py` | 2 `/embed` integration tests + 13 unit tests + 6 `@pytest.mark.api` integration tests |
+
+### Design highlights
+
+- Embedding routed through running API server (`POST /embed`) — no cold model load in CLI
+- Embed API unreachable → exits immediately with error message (spec requirement)
+- `cmd_add` refreshes ES index before exiting (even on embed failure) so partial batches are visible
+- All skip/warn messages go to stderr; JSON output and summaries go to stdout
+- Input validation: required fields, duplicate `item_id` detection, non-dict array elements
+
+### Test results (unit)
+
+```
+pytest tests/test_warehouse.py -k "not api"  →  13/13 ✓
+```
+
+---
+
 ## 2026-04-01 — Frontend Image Flow + History Restore Fixes
 
 ### Bugs found and fixed during live browser testing
