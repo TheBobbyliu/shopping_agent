@@ -316,7 +316,8 @@ def cleanup_integ_items():
     from elasticsearch import Elasticsearch
 
     es = Elasticsearch(os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
-    index = os.environ.get("ES_INDEX", "products_test")
+    import warehouse
+    index = warehouse.ES_INDEX
 
     def _delete_all():
         for item in _INTEG_ITEMS:
@@ -351,7 +352,7 @@ def test_integ_add_items(cleanup_integ_items, tmp_path, capsys):
     assert "Errors: 0" in out
 
     es = Elasticsearch(os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
-    index = os.environ.get("ES_INDEX", "products_test")
+    index = warehouse.ES_INDEX
     for item in _INTEG_ITEMS:
         doc = es.get(index=index, id=item["item_id"])["_source"]
         assert doc["item_id"] == item["item_id"]
@@ -402,7 +403,7 @@ def test_integ_delete_items(cleanup_integ_items, tmp_path, capsys):
 
     from elasticsearch import NotFoundError
     es = Elasticsearch(os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
-    index = os.environ.get("ES_INDEX", "products_test")
+    index = warehouse.ES_INDEX
     try:
         es.get(index=index, id=_INTEG_ITEMS[0]["item_id"])
         pytest.fail("Item should have been deleted but was still found in ES")
