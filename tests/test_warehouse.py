@@ -400,12 +400,13 @@ def test_integ_delete_items(cleanup_integ_items, tmp_path, capsys):
     assert "Not found: 1" in captured.out
     assert "[warn]" in captured.err
 
+    from elasticsearch import NotFoundError
     es = Elasticsearch(os.environ.get("ELASTICSEARCH_URL", "http://localhost:9200"))
     index = os.environ.get("ES_INDEX", "products_test")
     try:
         es.get(index=index, id=_INTEG_ITEMS[0]["item_id"])
-        assert False, "Item should have been deleted"
-    except Exception:
+        pytest.fail("Item should have been deleted but was still found in ES")
+    except NotFoundError:
         pass  # expected — item is gone
 
 
